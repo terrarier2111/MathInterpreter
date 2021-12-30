@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use rust_decimal::Decimal;
 use crate::shared::{Associativity, OpKind, SignKind, Token, TokenKind};
 
@@ -18,7 +20,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self, parse_context: &mut ParseContext) -> Option<f64> {
         let mut eq_location = usize::MAX;
         let mut brace_start = usize::MAX;
         let mut brace_end = usize::MAX;
@@ -55,7 +57,13 @@ impl Parser {
                 };
                 let mut arguments = vec![];
                 // TODO: populate arguments!
+                if eq_location != ((1 + 1 + (2 * (arguments.len() as isize) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
+                    panic!("Equal at wrong location!");
+                }
                 action = Action::DefineFunc(func_name, arguments);
+                for _ in 0..(eq_location - 1) {
+                    self.tokens.pop();
+                }
             } else if brace_end != usize::MAX {
                 panic!("Invalid braces!")
             } else {
@@ -71,6 +79,29 @@ impl Parser {
             }
         }
         self.action = action;
+        match &self.action {
+            Action::DefineVar(name) => {
+                let mut rpn = shunting_yard(self.tokens.clone());
+                for token in rpn.iter() {
+                    println!("{:?}", token);
+                }
+                let result = eval_rpn(rpn);
+                parse_context.register_var(name, result);
+                Some(result)
+            }
+            Action::DefineFunc(name, args) => {
+                parse_context.register_func(Function::new(name.clone(), args.clone(), self.tokens.clone()));
+                None
+            },
+            Action::Eval => {
+                let mut rpn = shunting_yard(self.tokens.clone());
+                for token in rpn.iter() {
+                    println!("{:?}", token);
+                }
+                let result = eval_rpn(rpn);
+                Some(result)
+            },
+        }
     }
 
     /*pub fn expect(&self, token: &Token) -> bool {
@@ -102,15 +133,107 @@ impl Parser {
 
 pub(crate) struct ParseContext {
 
-    variables: HashMap<String, Decimal>,
+    vars: HashMap<String, (bool, f64)>,
+    funcs: HashMap<String, (bool, Function)>,
 
 }
 
 impl ParseContext {
 
     pub fn new() -> Self {
-        Self {
-            variables: Default::default(),
+        let mut ret = Self {
+            vars: Default::default(),
+            funcs: Default::default(),
+        };
+        let pi = String::from("pi");
+        let e = String::from("e");
+        ret.register_constant(&pi, std::f64::consts::PI);
+        ret.register_constant(&e, std::f64::consts::E);
+        ret
+    }
+
+    pub fn exists_var(&self, var_name: &String) -> bool {
+        let var_name = var_name.to_lowercase();
+        self.vars.contains_key(&*var_name)
+    }
+
+    pub fn lookup_var(&self, var_name: String) -> f64 {
+        let var_name = var_name.to_lowercase();
+        (*self.vars.get(var_name.as_str()).unwrap()).1
+    }
+
+    pub fn register_var(&mut self, var_name: &String, value: f64) -> Result<bool, RegisterError> {
+        let var_name = var_name.to_lowercase();
+        if self.exists_fn(&var_name) {
+            return Err(RegisterError("There is already a function with this name.".to_string()));
+        }
+        if let Some(x) = self.vars.get(var_name.as_str()) {
+            if x.0 {
+                self.vars.insert(var_name, (true, value));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            self.vars.insert(var_name, (true, value));
+            Ok(true)
+        }
+    }
+
+    /// For internal use only!
+    pub fn register_constant(&mut self, var_name: &String, value: f64) -> bool {
+        let var_name = var_name.to_lowercase();
+        if let Some(x) = self.vars.get(var_name.as_str()) {
+            if x.0 {
+                self.vars.insert(var_name, (false, value));
+                true
+            } else {
+                false
+            }
+        } else {
+            self.vars.insert(var_name, (false, value));
+            true
+        }
+    }
+
+    pub fn exists_fn(&self, func_name: &String) -> bool {
+        let func_name = func_name.to_lowercase();
+        self.funcs.contains_key(&*func_name)
+    }
+
+    pub fn call_func(&self, name: &String, args: Vec<usize>) -> Vec<Token> {
+        let name = name.to_lowercase();
+        let func = self.funcs.get(&*name).unwrap();
+        func.1.build_tokens(args)
+    }
+
+    pub fn register_func(&mut self, func: Function) -> bool {
+        let func_name = func.name.to_lowercase();
+        if let Some(x) = self.funcs.get(func_name.as_str()) {
+            if x.0 {
+                self.funcs.insert(func_name, (false, func));
+                true
+            } else {
+                false
+            }
+        } else {
+            self.funcs.insert(func_name, (false, func));
+            true
+        }
+    }
+
+    pub fn register_builtin_func(&mut self, func: Function) -> bool {
+        let func_name = func.name.to_lowercase();
+        if let Some(x) = self.funcs.get(func_name.as_str()) {
+            if x.0 {
+                self.funcs.insert(func_name, (false, func));
+                true
+            } else {
+                false
+            }
+        } else {
+            self.funcs.insert(func_name, (false, func));
+            true
         }
     }
 
@@ -148,7 +271,7 @@ pub fn shunting_yard(input: Vec<Token>) -> Vec<Token> {
             },
             Token::Literal(_) => {}, // TODO: Support variables!
             Token::Number(_) => output.push(token),
-            Token::Sign(_) => {},
+            Token::Sign(_) => panic!("There was no sign expected!"),
             Token::Other(_) => {},
             Token::Invalid(_) => {},
             Token::None => unreachable!(),
@@ -212,9 +335,8 @@ pub fn eval_rpn(input: Vec<Token>) -> f64 {
             Token::None => unreachable!(),
         }
     }
-    println!("numbers: {}", num_stack.len());
-    for x in num_stack.iter() {
-        println!("num: {}", x);
+    if num_stack.len() != 1 {
+        panic!("There is more than 1 number left after finishing evaluation!")
     }
     num_stack.pop().unwrap()
 }
@@ -248,3 +370,83 @@ pub enum ActionKind {
     Eval,
 
 }
+
+pub struct Function {
+
+    name: String,
+    args: Vec<FunctionArg>,
+    tokens: Vec<Token>,
+
+}
+
+impl Function {
+
+    pub fn new(name: String, arg_names: Vec<String>, tokens: Vec<Token>) -> Self {
+        let mut finished_args = vec![];
+        for arg in arg_names.iter().enumerate() {
+            let pos = arg.0;
+            let mut arg_positions = vec![];
+            for token in tokens.iter().enumerate() {
+                if let Token::Literal(str) = token.1 {
+                    if str == arg.1 {
+                        arg_positions.push(token.0);
+                    }
+                }
+            }
+            finished_args.push(FunctionArg::new(arg.1.clone(), pos, arg_positions));
+        }
+        Self {
+            name,
+            args: finished_args,
+            tokens,
+        }
+    }
+
+    pub fn build_tokens(&self, arg_values: Vec<usize>) -> Vec<Token> {
+        let mut ret = self.tokens.clone();
+        for arg in self.args.iter().enumerate() {
+            arg.1.build(arg_values[arg.0], &mut ret);
+        }
+        ret
+    }
+
+}
+
+pub(crate) struct FunctionArg {
+
+    pub(crate) name: String,
+    pub(crate) in_func_pos: usize,
+    pub(crate) token_positions: Vec<usize>,
+
+}
+
+impl FunctionArg {
+
+    pub(crate) fn new(name: String, pos: usize, token_positions: Vec<usize>) -> Self {
+        Self {
+            name,
+            in_func_pos: pos,
+            token_positions
+        }
+    }
+
+    pub(crate) fn build(&self, value: usize, tokens: &mut Vec<Token>) {
+        let str = value.to_string();
+        let token = Token::Number(str);
+        for pos in self.token_positions.iter() {
+            tokens[*pos] = token.clone();
+        }
+    }
+
+}
+
+#[derive(Debug)]
+pub struct RegisterError(String);
+
+impl Display for RegisterError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*self.0)
+    }
+}
+
+impl Error for RegisterError {}

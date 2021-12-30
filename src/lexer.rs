@@ -21,13 +21,18 @@ impl Lexer {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for x in input.chars() {
+            if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
+                if let Some(token) = token_type.take() {
+                    tokens.push(token);
+                }
+            }
             let token = match x {
-                '.' => {
+                /*'.' => { // TODO: Improve dot validation!
                     if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Dot)
-                },
+                },*/
                 '=' => {
                     if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
@@ -118,9 +123,12 @@ impl Lexer {
                     }
                 },
                 _ => {
-                    if x.is_numeric() {
+                    if x.is_numeric() || x == '.' {
                         match &mut token_type {
                             None => {
+                                if x == '.' {
+                                    return Err(LexError::new("`.` at wrong location.".to_string()))
+                                }
                                 let mut num = String::from(x);
                                 if !tokens.is_empty() {
                                     let mut has_sign = false;

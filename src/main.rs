@@ -16,12 +16,9 @@ fn main() {
             println!("{:?}", token);
         }
         println!("------------------------------");
-        // let mut parser = Parser::new(tokens);
-        let parsed = parser::shunting_yard(tokens);
-        for token in parsed.iter() {
-            println!("{:?}", token);
-        }
+        let mut parser = Parser::new(tokens);
+        let parsed = parser.parse(&mut context);
         println!("------------------------------");
-        println!("result: {}", parser::eval_rpn(parsed));
+        println!("result: {:?}", parsed);
     }
 }
