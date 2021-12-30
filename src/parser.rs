@@ -50,24 +50,29 @@ impl Parser {
                 if brace_end == usize::MAX {
                     panic!("Invalid braces!")
                 }
-                let mut func_name = if let Token::Literal(x) = self.tokens.pop().unwrap() {
+                let mut func_name = if let Token::Literal(x) = self.tokens.remove(0) {
                     x
                 } else {
                     panic!("No function name was given!")
                 };
                 let mut arguments = vec![];
-                // TODO: populate arguments!
-                if eq_location != ((1 + 1 + (2 * (arguments.len() as isize) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
+                for x in 0..(eq_location - 1) {
+                    let token = self.tokens.remove(0);
+                    if x % 2 == 1 {
+                        if let Token::Literal(var) = token {
+                            arguments.push(var);
+                        }
+                    }
+                }
+                println!("ceql: {} | {}", ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize), eq_location);
+                if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
                     panic!("Equal at wrong location!");
                 }
                 action = Action::DefineFunc(func_name, arguments);
-                for _ in 0..(eq_location - 1) {
-                    self.tokens.pop();
-                }
             } else if brace_end != usize::MAX {
                 panic!("Invalid braces!")
             } else {
-                let mut var_name = if let Token::Literal(x) = self.tokens.pop().unwrap() {
+                let mut var_name = if let Token::Literal(x) = self.tokens.remove(0) {
                     x
                 } else {
                     panic!("No function name was given!")
@@ -79,8 +84,24 @@ impl Parser {
             }
         }
         self.action = action;
+        // TODO: Replace variables with values and replace function calls!
         match &self.action {
             Action::DefineVar(name) => {
+                let mut replaced_tokens = vec![];
+                println!("replacing!");
+                for token in self.tokens.iter().enumerate() {
+                    println!("tok!");
+                    if let Token::Literal(content) = token.1 {
+                        println!("before existance check! {}", content);
+                        if parse_context.exists_var(content) {
+                            println!("do stuff!");
+                            replaced_tokens.push((token.0, parse_context.lookup_var(content)))
+                        }
+                    }
+                }
+                for token in replaced_tokens {
+                    self.tokens[token.0] = Token::Number(token.1.to_string());
+                }
                 let mut rpn = shunting_yard(self.tokens.clone());
                 for token in rpn.iter() {
                     println!("{:?}", token);
@@ -94,6 +115,17 @@ impl Parser {
                 None
             },
             Action::Eval => {
+                let mut replaced_vars = vec![];
+                for token in self.tokens.iter().enumerate() {
+                    if let Token::Literal(content) = token.1 {
+                        if parse_context.exists_var(content) {
+                            replaced_vars.push((token.0, parse_context.lookup_var(content)))
+                        }
+                    }
+                }
+                for token in replaced_vars {
+                    self.tokens[token.0] = Token::Number(token.1.to_string());
+                }
                 let mut rpn = shunting_yard(self.tokens.clone());
                 for token in rpn.iter() {
                     println!("{:?}", token);
@@ -157,7 +189,7 @@ impl ParseContext {
         self.vars.contains_key(&*var_name)
     }
 
-    pub fn lookup_var(&self, var_name: String) -> f64 {
+    pub fn lookup_var(&self, var_name: &String) -> f64 {
         let var_name = var_name.to_lowercase();
         (*self.vars.get(var_name.as_str()).unwrap()).1
     }
