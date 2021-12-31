@@ -13,7 +13,6 @@ pub enum Token {
     Number(String),
     Sign(SignKind),
     Other(char),
-    Invalid(char),
     None,
 
 }
@@ -32,14 +31,13 @@ impl Token {
             Token::Number(_) => TokenKind::Number,
             Token::Sign(_) => TokenKind::Sign,
             Token::Other(_) => TokenKind::Other,
-            Token::Invalid(_) => TokenKind::Invalid,
             Token::None => unreachable!(),
         }
     }
 
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
 
     OpenParen,
@@ -52,7 +50,6 @@ pub enum TokenKind {
     Number,
     Sign,
     Other,
-    Invalid,
 
 }
 

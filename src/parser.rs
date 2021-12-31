@@ -20,6 +20,92 @@ impl Parser {
         }
     }
 
+    fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) {
+        let mut replaced_tokens = vec![];
+        let mut possibly_replaced_funcs =  vec![];
+        println!("replacing!");
+        for token in self.tokens.iter().enumerate() {
+            println!("tok!");
+            if let Token::Literal(content) = token.1 {
+                println!("before existance check! {}", content);
+                if parse_context.exists_var(content) {
+                    println!("do stuff!");
+                    replaced_tokens.push((token.0, parse_context.lookup_var(content)))
+                } else if parse_context.exists_fn(content) {
+                    possibly_replaced_funcs.push((token.0, token.1.clone()));
+                }
+            }
+        }
+        for token in replaced_tokens {
+            self.tokens[token.0] = Token::Number(token.1.to_string());
+        }
+        for pr in possibly_replaced_funcs {
+            let start = pr.0;
+            let mut args: Vec<(usize, usize)> = vec![];
+            if self.tokens[pr.0 + 1].kind() == TokenKind::OpenParen {
+                let mut offset = 1;
+                let mut arg_start = pr.0 + 1 + 1;
+                let mut opened_parens = 1;
+                loop {
+                    offset += 1;
+                    let token = &self.tokens[start + offset];
+                    match token {
+                        Token::OpenParen => opened_parens += 1,
+                        Token::ClosedParen => {
+                            opened_parens -= 1;
+                            if opened_parens == 0 {
+                                args.push((arg_start, start + offset)); // TODO: Is this -1 correct?
+                                break;
+                            }
+                        },
+                        Token::Eq => panic!("Eq at wrong location!"),
+                        Token::Comma => {
+                            if opened_parens == 1 {
+                                args.push((arg_start, start + offset));
+                                println!("before: {}", arg_start);
+                                arg_start = start + offset + 1;
+                                println!("after: {}", arg_start);
+                            }
+                        },
+                        Token::Dot => panic!("Dot at wrong location!"),
+                        Token::Op(_) => {},
+                        Token::Literal(_) => {},
+                        Token::Number(_) => {},
+                        Token::Sign(_) => {},
+                        Token::Other(_) => {},
+                        Token::None => unreachable!(),
+                    }
+                }
+            } else {
+                panic!("You have to put `(` arguments `)` behind the function name to perform a proper function call!")
+            }
+            for arg in args.iter() {
+                println!("arg: {:?}", arg);
+            }
+            let mut finished_args = vec![];
+            let end = args.last().unwrap().1 + 1;
+            for arg in args {
+                let mut result = vec![];
+                for x in (arg.0)..(arg.1) {
+                    result.push(self.tokens[x].clone());
+                }
+                finished_args.push(result);
+            }
+            if let Token::Literal(func) = pr.1 {
+                for _ in 0..(end - start) {
+                    self.tokens.remove(start);
+                }
+                let result = parse_context.call_func(&func, finished_args);
+                self.tokens.insert(pr.0, Token::OpenParen);
+                let len = result.len();
+                for token in result.into_iter().enumerate() {
+                    self.tokens.insert(pr.0 + 1 + token.0, token.1);
+                }
+                self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen);
+            }
+        }
+    }
+
     pub fn parse(&mut self, parse_context: &mut ParseContext) -> Option<f64> {
         let mut eq_location = usize::MAX;
         let mut brace_start = usize::MAX;
@@ -40,7 +126,6 @@ impl Parser {
                 Token::Number(_) => {}
                 Token::Sign(_) => {}
                 Token::Other(_) => unreachable!(),
-                Token::Invalid(_) => unreachable!(),
                 Token::None => unreachable!(),
             }
         }
@@ -56,7 +141,7 @@ impl Parser {
                     panic!("No function name was given!")
                 };
                 let mut arguments = vec![];
-                for x in 0..(eq_location - 1) {
+                for x in 0..(eq_location/* - 1*/) {
                     let token = self.tokens.remove(0);
                     if x % 2 == 1 {
                         if let Token::Literal(var) = token {
@@ -85,29 +170,25 @@ impl Parser {
         }
         self.action = action;
         // TODO: Replace variables with values and replace function calls!
-        match &self.action {
+        match self.action.clone() {
             Action::DefineVar(name) => {
-                let mut replaced_tokens = vec![];
-                println!("replacing!");
-                for token in self.tokens.iter().enumerate() {
-                    println!("tok!");
-                    if let Token::Literal(content) = token.1 {
-                        println!("before existance check! {}", content);
-                        if parse_context.exists_var(content) {
-                            println!("do stuff!");
-                            replaced_tokens.push((token.0, parse_context.lookup_var(content)))
-                        }
-                    }
+                // Perform variable and function lookup and evaluation
+                self.handle_vars_and_fn_calls(parse_context);
+                /*
+
+                println!("+++");
+                for token in self.tokens.iter() {
+                    println!("{:?}", token);
                 }
-                for token in replaced_tokens {
-                    self.tokens[token.0] = Token::Number(token.1.to_string());
-                }
+                println!("---");*/
+
+                // Perform the evaluation of the variable definition
                 let mut rpn = shunting_yard(self.tokens.clone());
                 for token in rpn.iter() {
                     println!("{:?}", token);
                 }
                 let result = eval_rpn(rpn);
-                parse_context.register_var(name, result);
+                parse_context.register_var(&name, result);
                 Some(result)
             }
             Action::DefineFunc(name, args) => {
@@ -115,21 +196,23 @@ impl Parser {
                 None
             },
             Action::Eval => {
-                let mut replaced_vars = vec![];
-                for token in self.tokens.iter().enumerate() {
-                    if let Token::Literal(content) = token.1 {
-                        if parse_context.exists_var(content) {
-                            replaced_vars.push((token.0, parse_context.lookup_var(content)))
-                        }
-                    }
+                // Perform variable and function lookup and evaluation
+                self.handle_vars_and_fn_calls(parse_context);
+                /*
+
+                println!("+++");
+                for token in self.tokens.iter() {
+                    println!("{:?}", token);
                 }
-                for token in replaced_vars {
-                    self.tokens[token.0] = Token::Number(token.1.to_string());
-                }
+                println!("---");*/
+
+                // Perform the evaluation of the input statement
                 let mut rpn = shunting_yard(self.tokens.clone());
+                println!("***");
                 for token in rpn.iter() {
                     println!("{:?}", token);
                 }
+                println!("...");
                 let result = eval_rpn(rpn);
                 Some(result)
             },
@@ -233,7 +316,7 @@ impl ParseContext {
         self.funcs.contains_key(&*func_name)
     }
 
-    pub fn call_func(&self, name: &String, args: Vec<usize>) -> Vec<Token> {
+    pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> Vec<Token> {
         let name = name.to_lowercase();
         let func = self.funcs.get(&*name).unwrap();
         func.1.build_tokens(args)
@@ -305,7 +388,6 @@ pub fn shunting_yard(input: Vec<Token>) -> Vec<Token> {
             Token::Number(_) => output.push(token),
             Token::Sign(_) => panic!("There was no sign expected!"),
             Token::Other(_) => {},
-            Token::Invalid(_) => {},
             Token::None => unreachable!(),
         }
     }
@@ -363,7 +445,6 @@ pub fn eval_rpn(input: Vec<Token>) -> f64 {
             Token::Number(num) => num_stack.push(num.parse::<f64>().unwrap()), // TODO: Improve this!
             Token::Sign(_) => unreachable!(),
             Token::Other(_) => unreachable!(),
-            Token::Invalid(_) => unreachable!(),
             Token::None => unreachable!(),
         }
     }
@@ -373,7 +454,7 @@ pub fn eval_rpn(input: Vec<Token>) -> f64 {
     num_stack.pop().unwrap()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Action {
 
     DefineVar(String), // var name
@@ -414,6 +495,7 @@ pub struct Function {
 impl Function {
 
     pub fn new(name: String, arg_names: Vec<String>, tokens: Vec<Token>) -> Self {
+        // TODO: Find and replace constants here!
         let mut finished_args = vec![];
         for arg in arg_names.iter().enumerate() {
             let pos = arg.0;
@@ -427,6 +509,12 @@ impl Function {
             }
             finished_args.push(FunctionArg::new(arg.1.clone(), pos, arg_positions));
         }
+        println!("kkkkkkkkkkkk");
+
+        for token in tokens.iter() {
+            println!("{:?}", token);
+        }
+        println!("llllllllllllllllllll");
         Self {
             name,
             args: finished_args,
@@ -434,10 +522,11 @@ impl Function {
         }
     }
 
-    pub fn build_tokens(&self, arg_values: Vec<usize>) -> Vec<Token> {
+    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>) -> Vec<Token> {
         let mut ret = self.tokens.clone();
+        let mut offset = 0;
         for arg in self.args.iter().enumerate() {
-            arg.1.build(arg_values[arg.0], &mut ret);
+            offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
         }
         ret
     }
@@ -462,12 +551,18 @@ impl FunctionArg {
         }
     }
 
-    pub(crate) fn build(&self, value: usize, tokens: &mut Vec<Token>) {
-        let str = value.to_string();
-        let token = Token::Number(str);
+    pub(crate) fn build(&self, value: &Vec<Token>, tokens: &mut Vec<Token>, offset: usize) -> usize {
+        let added_tokens = value.len() + 1;
         for pos in self.token_positions.iter() {
-            tokens[*pos] = token.clone();
+            let pos = pos + offset;
+            tokens[pos] = Token::OpenParen;
+            let end = pos + 1 + value.len().clone();
+            for token in value.into_iter().enumerate() {
+                tokens.insert(pos + 1 + token.0, token.1.clone());
+            }
+            tokens.insert(end, Token::ClosedParen);
         }
+        added_tokens
     }
 
 }

@@ -28,56 +28,56 @@ impl Lexer {
             }
             let token = match x {
                 /*'.' => { // TODO: Improve dot validation!
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Dot)
                 },*/
                 '=' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Eq)
                 },
                 '(' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::OpenParen)
                 },
                 ')' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::ClosedParen)
                 },
                 ' ' => Some(Token::None),
                 ',' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Comma)
                 },
                 '*' | '×' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Op(Multiply))
                 },
                 '/' | ':' | '÷' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Op(Divide))
                 },
                 '%' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Op(Modulo))
                 },
                 '^' => {
-                    if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
                         return Err(LexError::new(format!("`{}` at wrong location.", x)))
                     }
                     Some(Token::Op(Pow))
@@ -87,10 +87,10 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
                             return Err(LexError::new(format!("`{}` at wrong location.", x)))
                         }
-                        match &tokens.get(tokens.len() - 1).unwrap() {
+                        match &tokens.last().unwrap() {
                             Token::Op(_) => {
                                 Some(Token::Sign(SignKind::Plus))
                             }
@@ -107,10 +107,10 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
                             return Err(LexError::new(format!("`{}` at wrong location.", x)))
                         }
-                        match &tokens.get(tokens.len() - 1).unwrap() {
+                        match &tokens.last().unwrap() {
                             Token::Op(_) => {
                                 Some(Token::Sign(SignKind::Minus))
                             }
@@ -132,7 +132,7 @@ impl Lexer {
                                 let mut num = String::from(x);
                                 if !tokens.is_empty() {
                                     let mut has_sign = false;
-                                    if let Token::Sign(sign) = tokens.get(tokens.len() - 1).unwrap() {
+                                    if let Token::Sign(sign) = tokens.last().unwrap() {
                                         has_sign = true;
                                         match sign {
                                             SignKind::Plus => {}
@@ -158,8 +158,8 @@ impl Lexer {
                     } else if x.is_alphabetic() {
                         match &mut token_type {
                             None => {
-                                if !tokens.is_empty() && matches!(tokens.get(tokens.len() - 1).unwrap().kind(), TokenKind::Sign | TokenKind::Dot) {
-                                    return Err(LexError::new(format!("`{:?}` at wrong location.", tokens.get(tokens.len() - 1).unwrap().kind().to_string())))
+                                if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Sign | TokenKind::Dot) {
+                                    return Err(LexError::new(format!("`{:?}` at wrong location.", tokens.last().unwrap().kind().to_string())))
                                 }
                                 token_type = Some(Token::Literal(String::from(x)));
                             },
