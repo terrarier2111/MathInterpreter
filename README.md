@@ -16,4 +16,5 @@ Features are:
 ❌ | Recursive functions\
 ❌ | Proper error propagation and providing suggestions\
 ❌ | Customizable decimal accuracy\
-❌ | Multithreading support for expensive calculations
+❌ | Multithreading support for expensive calculations\
+❌ | Complete validation of input
