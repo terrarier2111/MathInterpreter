@@ -345,10 +345,10 @@ pub fn shunting_yard(input: Vec<Token>) -> Vec<Token> {
                 }
                 operator_stack.push(op);
             },
-            Token::Literal(_) => {}, // TODO: Support variables!
+            Token::Literal(_) => panic!("Failed to evaluate literal correctly!"),
             Token::Number(_) => output.push(token),
             Token::Sign(_) => panic!("There was no sign expected!"),
-            Token::Other(_) => {},
+            Token::Other(_) => panic!("Other is not allowed here!"),
             Token::None => unreachable!(),
         }
     }
@@ -364,9 +364,9 @@ pub fn eval_rpn(input: Vec<Token>) -> f64 {
         match token {
             Token::OpenParen => unreachable!(),
             Token::ClosedParen => unreachable!(),
-            Token::Eq => {}
-            Token::Comma => {}
-            Token::Dot => unreachable!(),
+            Token::Eq => panic!("Eq at wrong location!"),
+            Token::Comma => panic!("Comma at wrong location!"),
+            Token::Dot => panic!("Dot at wrong location!"),
             Token::Op(op) => {
                 match op {
                     OpKind::Plus => {
@@ -402,7 +402,7 @@ pub fn eval_rpn(input: Vec<Token>) -> f64 {
                     OpKind::OpenParen => unreachable!(),
                 }
             },
-            Token::Literal(_) => {}
+            Token::Literal(_) => panic!("Failed to evaluate literal correctly!"),
             Token::Number(num) => num_stack.push(num.parse::<f64>().unwrap()), // TODO: Improve this!
             Token::Sign(_) => unreachable!(),
             Token::Other(_) => unreachable!(),
@@ -458,17 +458,16 @@ impl Function {
     pub fn new(name: String, arg_names: Vec<String>, mut tokens: Vec<Token>, parse_context: &ParseContext) -> Self {
         // Detect arguments
         let mut finished_args = vec![];
-        for arg in arg_names.iter().enumerate() {
-            let pos = arg.0;
+        for arg in arg_names.iter() {
             let mut arg_positions = vec![];
             for token in tokens.iter().enumerate() {
                 if let Token::Literal(str) = token.1 {
-                    if str == arg.1 {
+                    if str == arg {
                         arg_positions.push(token.0);
                     }
                 }
             }
-            finished_args.push(FunctionArg::new(arg.1.clone(), pos, arg_positions));
+            finished_args.push(FunctionArg::new(arg_positions));
         }
         // Perform constant replacement
         let mut replace_consts = vec![];
@@ -478,7 +477,7 @@ impl Function {
                     if parse_context.exists_const(str) {
                         replace_consts.push((token.0, parse_context.lookup_const(str)));
                     } else {
-                        panic!("Not a argument or const!")
+                        panic!("Not an argument or const!")
                     }
                 }
             }
@@ -507,18 +506,14 @@ impl Function {
 
 pub(crate) struct FunctionArg {
 
-    pub(crate) name: String,
-    pub(crate) in_func_pos: usize,
     pub(crate) token_positions: Vec<usize>,
 
 }
 
 impl FunctionArg {
 
-    pub(crate) fn new(name: String, pos: usize, token_positions: Vec<usize>) -> Self {
+    pub(crate) fn new(token_positions: Vec<usize>) -> Self {
         Self {
-            name,
-            in_func_pos: pos,
             token_positions
         }
     }
