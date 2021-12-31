@@ -23,13 +23,9 @@ impl Parser {
     fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) {
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs =  vec![];
-        println!("replacing!");
         for token in self.tokens.iter().enumerate() {
-            println!("tok!");
             if let Token::Literal(content) = token.1 {
-                println!("before existance check! {}", content);
                 if parse_context.exists_var(content) {
-                    println!("do stuff!");
                     replaced_tokens.push((token.0, parse_context.lookup_var(content)))
                 } else if parse_context.exists_fn(content) {
                     possibly_replaced_funcs.push((token.0, token.1.clone()));
@@ -62,9 +58,7 @@ impl Parser {
                         Token::Comma => {
                             if opened_parens == 1 {
                                 args.push((arg_start, start + offset));
-                                println!("before: {}", arg_start);
                                 arg_start = start + offset + 1;
-                                println!("after: {}", arg_start);
                             }
                         },
                         Token::Dot => panic!("Dot at wrong location!"),
@@ -78,9 +72,6 @@ impl Parser {
                 }
             } else {
                 panic!("You have to put `(` arguments `)` behind the function name to perform a proper function call!")
-            }
-            for arg in args.iter() {
-                println!("arg: {:?}", arg);
             }
             let mut finished_args = vec![];
             let end = args.last().unwrap().1 + 1;
@@ -141,7 +132,7 @@ impl Parser {
                     panic!("No function name was given!")
                 };
                 let mut arguments = vec![];
-                for x in 0..(eq_location/* - 1*/) {
+                for x in 0..eq_location {
                     let token = self.tokens.remove(0);
                     if x % 2 == 1 {
                         if let Token::Literal(var) = token {
@@ -149,7 +140,6 @@ impl Parser {
                         }
                     }
                 }
-                println!("ceql: {} | {}", ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize), eq_location);
                 if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
                     panic!("Equal at wrong location!");
                 }
@@ -169,80 +159,32 @@ impl Parser {
             }
         }
         self.action = action;
-        // TODO: Replace variables with values and replace function calls!
         match self.action.clone() {
             Action::DefineVar(name) => {
                 // Perform variable and function lookup and evaluation
                 self.handle_vars_and_fn_calls(parse_context);
-                /*
-
-                println!("+++");
-                for token in self.tokens.iter() {
-                    println!("{:?}", token);
-                }
-                println!("---");*/
 
                 // Perform the evaluation of the variable definition
                 let mut rpn = shunting_yard(self.tokens.clone());
-                for token in rpn.iter() {
-                    println!("{:?}", token);
-                }
                 let result = eval_rpn(rpn);
                 parse_context.register_var(&name, result);
                 Some(result)
             }
             Action::DefineFunc(name, args) => {
-                parse_context.register_func(Function::new(name.clone(), args.clone(), self.tokens.clone()));
+                parse_context.register_func(Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context));
                 None
             },
             Action::Eval => {
                 // Perform variable and function lookup and evaluation
                 self.handle_vars_and_fn_calls(parse_context);
-                /*
-
-                println!("+++");
-                for token in self.tokens.iter() {
-                    println!("{:?}", token);
-                }
-                println!("---");*/
 
                 // Perform the evaluation of the input statement
                 let mut rpn = shunting_yard(self.tokens.clone());
-                println!("***");
-                for token in rpn.iter() {
-                    println!("{:?}", token);
-                }
-                println!("...");
                 let result = eval_rpn(rpn);
                 Some(result)
             },
         }
     }
-
-    /*pub fn expect(&self, token: &Token) -> bool {
-        matches!(self.tokens.get(self.cursor).unwrap(), token)
-    }
-
-    pub fn bump(&mut self) -> Option<&Token> {
-        self.cursor += 1;
-        self.tokens.get(self.cursor)
-    }
-
-    pub fn look_back(&self, offset: usize) -> Option<&Token> {
-        self.tokens.get(self.cursor - offset)
-    }
-
-    pub fn look_back_mut(&mut self, offset: usize) -> Option<&mut Token> {
-        self.tokens.get_mut(self.cursor - offset)
-    }
-
-    pub fn look_ahead(&self, offset: usize) -> Option<&Token> {
-        self.tokens.get(self.cursor + offset)
-    }
-
-    pub fn look_ahead_mut(&mut self, offset: usize) -> Option<&mut Token> {
-        self.tokens.get_mut(self.cursor + offset)
-    }*/
 
 }
 
@@ -265,6 +207,25 @@ impl ParseContext {
         ret.register_constant(&pi, std::f64::consts::PI);
         ret.register_constant(&e, std::f64::consts::E);
         ret
+    }
+
+    pub fn exists_const(&self, const_name: &String) -> bool {
+        let const_name = const_name.to_lowercase();
+        let con = self.vars.get(&*const_name);
+        if let Some(con) = con {
+            return !con.0;
+        }
+        false
+    }
+
+    pub fn lookup_const(&self, const_name: &String) -> f64 {
+        // TODO: Improve error handling!
+        let const_name = const_name.to_lowercase();
+        let tmp = (*self.vars.get(const_name.as_str()).unwrap());
+        if !tmp.0 {
+            return tmp.1;
+        }
+        panic!("Not a const!")
     }
 
     pub fn exists_var(&self, var_name: &String) -> bool {
@@ -484,7 +445,7 @@ pub enum ActionKind {
 
 }
 
-pub struct Function {
+pub(crate) struct Function {
 
     name: String,
     args: Vec<FunctionArg>,
@@ -494,8 +455,8 @@ pub struct Function {
 
 impl Function {
 
-    pub fn new(name: String, arg_names: Vec<String>, tokens: Vec<Token>) -> Self {
-        // TODO: Find and replace constants here!
+    pub fn new(name: String, arg_names: Vec<String>, mut tokens: Vec<Token>, parse_context: &ParseContext) -> Self {
+        // Detect arguments
         let mut finished_args = vec![];
         for arg in arg_names.iter().enumerate() {
             let pos = arg.0;
@@ -509,12 +470,23 @@ impl Function {
             }
             finished_args.push(FunctionArg::new(arg.1.clone(), pos, arg_positions));
         }
-        println!("kkkkkkkkkkkk");
-
-        for token in tokens.iter() {
-            println!("{:?}", token);
+        // Perform constant replacement
+        let mut replace_consts = vec![];
+        for token in tokens.iter().enumerate() {
+            if let Token::Literal(str) = token.1 {
+                if !arg_names.contains(str) {
+                    if parse_context.exists_const(str) {
+                        replace_consts.push((token.0, parse_context.lookup_const(str)));
+                    } else {
+                        panic!("Not a argument or const!")
+                    }
+                }
+            }
         }
-        println!("llllllllllllllllllll");
+        for x in replace_consts {
+            tokens[x.0] = Token::Number(x.1.to_string());
+        }
+
         Self {
             name,
             args: finished_args,
