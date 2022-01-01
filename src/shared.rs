@@ -1,18 +1,21 @@
+use std::marker::PhantomData;
+use std::rc::Rc;
 use rust_decimal::Decimal;
+use crate::error::Span;
 
 #[derive(Clone, Debug)]
 pub enum Token {
 
-    OpenParen,
-    ClosedParen,
-    Eq,
-    Comma,
-    Dot,
-    Op(OpKind),
-    Literal(String),
-    Number(String),
-    Sign(SignKind),
-    Other(char),
+    OpenParen(usize),
+    ClosedParen(usize),
+    Eq(usize),
+    Comma(usize),
+    Dot(usize),
+    Op(usize, OpKind),
+    Literal(Span, String),
+    Number(Span, String),
+    Sign(usize, SignKind),
+    Other(usize, char),
     None,
 
 }
@@ -21,16 +24,32 @@ impl Token {
 
     pub fn kind(&self) -> TokenKind {
         match self {
-            Token::OpenParen => TokenKind::OpenParen,
-            Token::ClosedParen => TokenKind::ClosedParen,
-            Token::Eq => TokenKind::Eq,
-            Token::Comma => TokenKind::Comma,
-            Token::Dot => TokenKind::Dot,
-            Token::Op(_) => TokenKind::Op,
-            Token::Literal(_) => TokenKind::Literal,
-            Token::Number(_) => TokenKind::Number,
-            Token::Sign(_) => TokenKind::Sign,
-            Token::Other(_) => TokenKind::Other,
+            Token::OpenParen(_) => TokenKind::OpenParen,
+            Token::ClosedParen(_) => TokenKind::ClosedParen,
+            Token::Eq(_) => TokenKind::Eq,
+            Token::Comma(_) => TokenKind::Comma,
+            Token::Dot(_) => TokenKind::Dot,
+            Token::Op(_, _) => TokenKind::Op,
+            Token::Literal(_, _) => TokenKind::Literal,
+            Token::Number(_, _) => TokenKind::Number,
+            Token::Sign(_, _) => TokenKind::Sign,
+            Token::Other(_, _) => TokenKind::Other,
+            Token::None => unreachable!(),
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Token::OpenParen(idx) => Span::new(*idx, idx + 1),
+            Token::ClosedParen(idx) => Span::new(*idx, idx + 1),
+            Token::Eq(idx) => Span::new(*idx, idx + 1),
+            Token::Comma(idx) => Span::new(*idx, idx + 1),
+            Token::Dot(idx) => Span::new(*idx, idx + 1),
+            Token::Op(idx, _) => Span::new(*idx, idx + 1),
+            Token::Literal(sp, _) => *sp,
+            Token::Number(sp, _) => *sp,
+            Token::Sign(idx, _) => Span::new(*idx, idx + 1),
+            Token::Other(idx, _) => Span::new(*idx, idx + 1),
             Token::None => unreachable!(),
         }
     }
@@ -59,6 +78,12 @@ impl TokenKind {
         format!("{:?}", self)
     }
 
+}
+
+pub type InternedToken<'ctx> = Rc<Interned<'ctx, Token>>;
+
+pub struct Interned<'ctx, T: Sized> {
+    interned: &'ctx mut T,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -126,7 +151,6 @@ pub type Number = Decimal;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Associativity {
-
     Left,
     Right,
 

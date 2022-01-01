@@ -1,10 +1,12 @@
 use crate::lexer::Lexer;
-use crate::parser::{ParseContext, Parser};
+use crate::parser::{ParseContext, Parser, PResult};
 
 mod lexer;
 mod parser;
 mod shared;
 mod utils;
+mod error;
+mod equation_solver;
 
 fn main() {
     let mut context = ParseContext::new();
@@ -19,6 +21,11 @@ fn main() {
         let mut parser = Parser::new(tokens);
         let parsed = parser.parse(&mut context);
         println!("------------------------------");
-        println!("result: {:?}", parsed);
+        match parsed {
+            PResult::Ok(_, val) => println!("Result: {:?}", val),
+            PResult::Err(_, err) => {
+                println!("Error: {:?}", err);
+            }
+        }
     }
 }
