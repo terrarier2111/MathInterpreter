@@ -17,4 +17,5 @@ Features are:
 🛠️ | Proper error propagation and providing suggestions\
 ❌ | Customizable decimal accuracy\
 ❌ | Multithreading support for expensive calculations\
-🛠️ | Validation of input
+🛠️ | Validation of input\
+❌ | Equation solving/simplification
