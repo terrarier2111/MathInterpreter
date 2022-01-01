@@ -18,4 +18,5 @@ Features are:
 ❌ | Customizable decimal accuracy\
 ❌ | Multithreading support for expensive calculations\
 🛠️ | Validation of input\
-❌ | Equation solving/simplification
+❌ | Equation solving/simplification\
+❌ | Api
