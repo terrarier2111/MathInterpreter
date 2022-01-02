@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, format, Formatter, Write};
-use crate::error::Span;
+use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
 use crate::shared::{SignKind, Token, TokenKind};
 
@@ -18,7 +18,7 @@ impl Lexer {
         }
     }
 
-    pub fn lex(&self, input: String) -> Result<Vec<Token>, LexError> {
+    pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for c in input.chars().enumerate() {
@@ -35,52 +35,58 @@ impl Lexer {
                     }
                     Some(Token::Dot)
                 },*/
+                '|' => {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)));
+                    }
+                    Some(Token::VertBar(c.0))
+                },
                 '=' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Eq(c.0))
                 },
                 '(' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | /**/TokenKind::Dot) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::OpenParen(c.0))
                 },
                 ')' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::ClosedParen(c.0))
                 },
                 ' ' => Some(Token::None),
                 ',' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Comma(c.0))
                 },
                 '*' | '×' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Op(c.0, Multiply))
                 },
                 '/' | ':' | '÷' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Op(c.0, Divide))
                 },
                 '%' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Op(c.0, Modulo))
                 },
                 '^' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                        return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                     }
                     Some(Token::Op(c.0, Pow))
                 },
@@ -89,8 +95,8 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
-                            return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Sign) {
+                            return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                         }
                         match &tokens.last().unwrap() {
                             Token::Op(_, _) => {
@@ -109,8 +115,8 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.last().unwrap().kind(), TokenKind::Dot | TokenKind::Sign) {
-                            return Err(LexError::new(format!("`{}` at wrong location.", x)))
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Sign) {
+                            return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                         }
                         match &tokens.last().unwrap() {
                             Token::Op(sp, _) => {
@@ -129,7 +135,7 @@ impl Lexer {
                         match &mut token_type {
                             None => {
                                 if x == '.' {
-                                    return Err(LexError::new("`.` at wrong location.".to_string()))
+                                    return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), "`.` at wrong location.".to_string(), Span::from_idx(c.0)))
                                 }
                                 let mut num = String::from(x);
                                 if !tokens.is_empty() {
@@ -160,8 +166,8 @@ impl Lexer {
                     } else if x.is_alphabetic() {
                         match &mut token_type {
                             None => {
-                                if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Sign | TokenKind::Dot) {
-                                    return Err(LexError::new(format!("`{:?}` at wrong location.", tokens.last().unwrap().kind().to_string())))
+                                if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | /**/TokenKind::Sign | TokenKind::Dot) {
+                                    return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{:?}` at wrong location.", tokens.last().unwrap().kind().to_string()), Span::from_idx(c.0)))
                                 }
                                 token_type = Some(Token::Literal(Span::new(c.0, c.0), String::from(x)));
                             },

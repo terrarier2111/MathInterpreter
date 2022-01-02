@@ -1,3 +1,6 @@
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 #[derive(Copy, Clone, Debug)]
 pub struct Span {
     start: usize,
@@ -6,25 +9,58 @@ pub struct Span {
 
 impl Span {
 
-    pub fn new(start: usize, end: usize) -> Self {
+    pub const NONE: Span = Span::new(usize::MAX, usize::MAX);
+
+    pub const fn new(start: usize, end: usize) -> Self {
         Self {
             start,
             end,
         }
     }
 
+    #[inline]
+    pub const fn from_idx(idx: usize) -> Self {
+        Self::new(idx, idx + 1)
+    }
+
+    #[inline]
+    pub const fn is_none(&self) -> bool {
+        self.end == usize::MAX && self.start == usize::MAX
+    }
+
 }
 
-pub(crate) struct DiagnosticBuilder {
+#[derive(Debug)]
+pub struct DiagnosticBuilder {
+    input: String,
     items: Vec<DiagnosticItem>,
 }
 
 impl DiagnosticBuilder {
     
-    pub fn new() -> Self {
+    pub fn new(input: String) -> Self {
         Self {
+            input,
             items: vec![],
         }
+    }
+
+    pub fn from_input_and_err_with_span(input: String, error: String, span: Span) -> Self {
+        let mut ret = Self {
+            input,
+            items: vec![]
+        };
+        ret.error_with_span(error, span);
+        ret
+    }
+
+    pub fn from_input_and_err(input: String, error: String) -> Self {
+        let mut ret = Self {
+            input,
+            items: vec![]
+        };
+        ret.error(error);
+        ret
     }
 
     pub fn note(&mut self, note: String) -> &mut Self {
@@ -32,12 +68,17 @@ impl DiagnosticBuilder {
         self
     }
 
-    pub fn error(&mut self, error: String, span: Span) -> &mut Self {
+    pub fn error_with_span(&mut self, error: String, span: Span) -> &mut Self {
         self.items.push(DiagnosticItem::Error(error, span));
         self
     }
 
-    pub fn suggestion(&mut self, suggestion: String, span: Span) -> &mut Self {
+    pub fn error(&mut self, error: String) -> &mut Self {
+        self.items.push(DiagnosticItem::Error(error, Span::NONE));
+        self
+    }
+
+    pub fn suggestion_with_span(&mut self, suggestion: String, span: Span) -> &mut Self {
         self.items.push(DiagnosticItem::Suggestion(suggestion, span));
         self
     }
@@ -63,6 +104,21 @@ impl DiagnosticBuilder {
 
 }
 
+impl Display for DiagnosticBuilder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut combined = String::new();
+        for x in self.items.iter() {
+            combined.push_str(&*x.to_string(&self.input));
+        }
+        f.write_str(&*combined)
+    }
+}
+
+impl Error for DiagnosticBuilder {
+
+}
+
+#[derive(Debug)]
 pub(crate) enum DiagnosticItem {
 
     Error(String, Span),

@@ -1,24 +1,22 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use crate::Config;
+use crate::error::DiagnosticBuilder;
 use crate::lexer::Lexer;
 use crate::parser::{ParseContext, Parser, PResult};
+use crate::shared::Token;
 
-pub fn eval(input: String, eval_ctx: &mut EvalContext) -> Result<Option<f64>, EvalError> {
+pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<f64>> {
     let mut lexer = Lexer::new();
-    let tokens = lexer.lex(input).unwrap();
+    let tokens = match lexer.lex(input) {
+        Ok(val) => val,
+        Err(diagnostic_builder) => {
+            return Err(diagnostic_builder);
+        },
+    };
     let mut parser = Parser::new(tokens);
     let parsed = parser.parse(&mut eval_ctx.parse_ctx);
-    match parsed {
-        PResult::Ok(_, val) => {
-            // TODO: Deal with the diagnostics!
-            Ok(val)
-        },
-        PResult::Err(_, err) => {
-            // TODO: Deal with the diagnostics!
-            Err(EvalError(err.to_string()))
-        }
-    }
+    parsed
 }
 
 #[derive(Debug)]

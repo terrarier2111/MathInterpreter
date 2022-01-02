@@ -58,7 +58,10 @@ impl Parser {
                             }
                         },
                         Token::Eq(_) => {
-                            return PResult::Err(None, ParseError::new("Eq at wrong location!".to_string()));
+                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Eq at wrong location!".to_string(), token.span()));
+                        },
+                        Token::VertBar(_) => {
+                            todo!()
                         },
                         Token::Comma(_) => {
                             if opened_parens == 1 {
@@ -67,7 +70,7 @@ impl Parser {
                             }
                         },
                         Token::Dot(_) => {
-                            return PResult::Err(None, ParseError::new("Dot at wrong location!".to_string()));
+                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Dot at wrong location!".to_string(), token.span()));
                         },
                         Token::Op(_, _) => {},
                         Token::Literal(_, _) => {},
@@ -78,7 +81,7 @@ impl Parser {
                     }
                 }
             } else {
-                return PResult::Err(None, ParseError::new("You have to put `(` arguments `)` behind the function name to perform a proper function call!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call!".to_string()));
             }
             let mut finished_args = vec![];
             let end = args.last().unwrap().1 + 1;
@@ -102,7 +105,7 @@ impl Parser {
                 self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen(pr.0));
             }
         }
-        PResult::Ok(None, ())
+        PResult::Ok(())
     }
 
     pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<f64>> {
@@ -126,18 +129,19 @@ impl Parser {
                 Token::Sign(_, _) => {}
                 Token::Other(_, _) => unreachable!(),
                 Token::None => unreachable!(),
+                Token::VertBar(_) => {}
             }
         }
         let mut action = Action::Eval;
         if eq_location != usize::MAX {
             if brace_start != usize::MAX {
                 if brace_end == usize::MAX {
-                    return PResult::Err(None, ParseError::new("Invalid braces!".to_string()));
+                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
                 }
                 let mut func_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
                     x
                 } else {
-                    return PResult::Err(None, ParseError::new("No function name was given!".to_string()));
+                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
                 };
                 let mut arguments = vec![];
                 for x in 0..eq_location {
@@ -149,19 +153,19 @@ impl Parser {
                     }
                 }
                 if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
-                    return PResult::Err(None, ParseError::new("Equal at wrong location!".to_string()));
+                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Equal at wrong location!".to_string()));
                 }
                 action = Action::DefineFunc(func_name, arguments);
             } else if brace_end != usize::MAX {
-                return PResult::Err(None, ParseError::new("Invalid braces!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
             } else {
                 let mut var_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
                     x
                 } else {
-                    return PResult::Err(None, ParseError::new("No function name was given!".to_string()));
+                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
                 };
                 if eq_location != 1 {
-                    return PResult::Err(None, ParseError::new("Equal at wrong location!".to_string()));
+                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Equal at wrong location!".to_string()));
                 }
                 action = Action::DefineVar(var_name);
             }
@@ -173,30 +177,30 @@ impl Parser {
                 self.handle_vars_and_fn_calls(parse_context);
 
                 // Perform the evaluation of the variable definition
-                let mut rpn = shunting_yard(self.tokens.clone());
+                let mut rpn = shunting_yard(self.tokens.clone(), parse_context);
                 let result = match rpn {
-                    PResult::Ok(_, rpn) => eval_rpn(rpn),
-                    PResult::Err(diagnostics, err) => return PResult::Err(diagnostics, err),
+                    PResult::Ok(rpn) => eval_rpn(rpn, parse_context),
+                    PResult::Err(err) => return PResult::Err(err),
                 };
                 match result {
-                    PResult::Ok(diagnostics, val) => {
+                    PResult::Ok(val) => {
                         parse_context.register_var(&name, val);
-                        PResult::Ok(diagnostics, Some(val))
+                        PResult::Ok(Some(val))
                     },
-                    PResult::Err(diagnostics, err) => {
-                        PResult::Err(diagnostics, err)
+                    PResult::Err(err) => {
+                        PResult::Err(err)
                     }
                 }
 
             }
             Action::DefineFunc(name, args) => {
                 match Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context) {
-                    PResult::Ok(_, func) => {
+                    PResult::Ok(func) => {
                         parse_context.register_func(func);
-                        PResult::Ok(None, None)
+                        PResult::Ok(None)
                     }
-                    PResult::Err(_, err) => {
-                        PResult::Err(None, err)
+                    PResult::Err(err) => {
+                        PResult::Err(err)
                     }
                 }
 
@@ -206,22 +210,25 @@ impl Parser {
                 self.handle_vars_and_fn_calls(parse_context);
 
                 // Perform the evaluation of the input statement
-                let mut rpn = shunting_yard(self.tokens.clone());
+                let mut rpn = shunting_yard(self.tokens.clone(), parse_context);
                 let result = match rpn {
-                    PResult::Ok(_, rpn) => {
-                        eval_rpn(rpn)
+                    PResult::Ok(rpn) => {
+                        eval_rpn(rpn, parse_context)
                     },
-                    PResult::Err(diagnostics, err) => PResult::Err(diagnostics, err),
+                    PResult::Err(err) => PResult::Err(err),
                 };
                 match result {
-                    PResult::Ok(_, val) => {
-                        PResult::Ok(None, Some(val))
+                    PResult::Ok(val) => {
+                        PResult::Ok(Some(val))
                     }
-                    PResult::Err(_, err) => {
-                        PResult::Err(None, err)
+                    PResult::Err(err) => {
+                        PResult::Err(err)
                     }
                 }
 
+            },
+            Action::DefineRecFunc(_, _, _) => {
+                todo!()
             },
         }
     }
@@ -230,6 +237,7 @@ impl Parser {
 
 pub(crate) struct ParseContext {
 
+    input: String,
     vars: HashMap<String, (bool, f64)>,
     funcs: HashMap<String, (bool, Function)>,
 
@@ -239,6 +247,7 @@ impl ParseContext {
 
     pub fn new() -> Self {
         let mut ret = Self {
+            input: String::new(),
             vars: Default::default(),
             funcs: Default::default(),
         };
@@ -247,6 +256,10 @@ impl ParseContext {
         ret.register_constant(&pi, std::f64::consts::PI);
         ret.register_constant(&e, std::f64::consts::E);
         ret
+    }
+
+    pub fn set_input(&mut self, input: String) {
+        self.input = input;
     }
 
     pub fn exists_const(&self, const_name: &String) -> bool {
@@ -258,14 +271,14 @@ impl ParseContext {
         false
     }
 
-    pub fn lookup_const(&self, const_name: &String) -> PResult<f64> {
+    pub fn lookup_const(&self, const_name: &String, parse_ctx: &ParseContext) -> PResult<f64> {
         // TODO: Improve error handling!
         let const_name = const_name.to_lowercase();
         let tmp = (*self.vars.get(const_name.as_str()).unwrap());
         if !tmp.0 {
-            return PResult::Ok(None, tmp.1);
+            return PResult::Ok(tmp.1);
         }
-        PResult::Err(None, ParseError::new("Not a const!".to_string()))
+        PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "Not a const!".to_string()))
     }
 
     pub fn exists_var(&self, var_name: &String) -> bool {
@@ -355,7 +368,7 @@ impl ParseContext {
 
 }
 
-pub(crate) fn shunting_yard(input: Vec<Token>) -> PResult<Vec<Token>> {
+pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<Vec<Token>> {
     let mut output = vec![];
     let mut operator_stack: Vec<OpKind> = vec![];
     for token in input {
@@ -369,7 +382,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>) -> PResult<Vec<Token>> {
                         }
                         output.push(Token::Op(0, op));
                     } else {
-                        return PResult::Err(None, ParseError::new("Invalid parens!".to_string()));
+                        return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Invalid parens!".to_string(), token.span()));
                     }
                 }
             },
@@ -385,38 +398,40 @@ pub(crate) fn shunting_yard(input: Vec<Token>) -> PResult<Vec<Token>> {
                 operator_stack.push(op);
             },
             Token::Literal(_, _) => {
-                return PResult::Err(None, ParseError::new("Failed to evaluate literal correctly!".to_string()));
+                return PResult::Err(DiagnosticBuilder::new("Failed to evaluate literal correctly!".to_string()));
             },
             Token::Number(_, _) => output.push(token),
             Token::Sign(_, _) => {
-                return PResult::Err(None, ParseError::new("There was no sign expected!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "There was no sign expected!".to_string(), token.span()));
             },
             Token::Other(_, _) => {
-                return PResult::Err(None, ParseError::new("Other is not allowed here!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Other is not allowed here!".to_string(), token.span()));
             },
             Token::None => unreachable!(),
+            Token::VertBar(_) => {}
         }
     }
     for operator in operator_stack.into_iter().rev() {
         output.push(Token::Op(0, operator));
     }
-    PResult::Ok(None, output)
+    PResult::Ok(output)
 }
 
-pub(crate) fn eval_rpn(input: Vec<Token>) -> PResult<f64> {
+pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<f64> {
     let mut num_stack: Vec<f64> = vec![];
     for token in input {
         match token {
             Token::OpenParen(_) => unreachable!(),
             Token::ClosedParen(_) => unreachable!(),
             Token::Eq(_) => {
-                return PResult::Err(None, ParseError::new("Eq at wrong location!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`=` at wrong location!".to_string(), token.span()));
             },
+            Token::VertBar(_) => {},
             Token::Comma(_) => {
-                return PResult::Err(None, ParseError::new("Comma at wrong location!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`,` at wrong location!".to_string(), token.span()));
             },
             Token::Dot(_) => {
-                return PResult::Err(None, ParseError::new("Dot at wrong location!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`.` at wrong location!".to_string(), token.span()));
             },
             Token::Op(_, op) => {
                 match op {
@@ -454,7 +469,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>) -> PResult<f64> {
                 }
             },
             Token::Literal(_, _) => {
-                return PResult::Err(None, ParseError::new("Failed to evaluate literal correctly!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Failed to evaluate literal correctly!".to_string(), token.span()));
             },
             Token::Number(_, num) => num_stack.push(num.parse::<f64>().unwrap()), // TODO: Improve this!
             Token::Sign(_, _) => unreachable!(),
@@ -463,9 +478,9 @@ pub(crate) fn eval_rpn(input: Vec<Token>) -> PResult<f64> {
         }
     }
     if num_stack.len() != 1 {
-        return PResult::Err(None, ParseError::new("There is more than 1 number left after finishing evaluation!".to_string()));
+        return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation!".to_string()));
     }
-    PResult::Ok(None, num_stack.pop().unwrap())
+    PResult::Ok(num_stack.pop().unwrap())
 }
 
 #[derive(Debug, Clone)]
@@ -473,6 +488,7 @@ pub enum Action {
 
     DefineVar(String), // var name
     DefineFunc(String, Vec<String>), // function name, function arguments
+    DefineRecFunc(String, Vec<String>, (usize, usize)), // function name, function arguments, (recursive min idx, recursive min val)
     Eval,
 
 }
@@ -484,6 +500,7 @@ impl Action {
             Action::DefineVar(_) => ActionKind::DefineVar,
             Action::DefineFunc(_, _) => ActionKind::DefineFunc,
             Action::Eval => ActionKind::Eval,
+            Action::DefineRecFunc(_, _, _) => ActionKind::DefineRecFunc,
         }
     }
 
@@ -494,6 +511,7 @@ pub enum ActionKind {
 
     DefineVar,
     DefineFunc,
+    DefineRecFunc,
     Eval,
 
 }
@@ -528,25 +546,25 @@ impl Function {
             if let Token::Literal(span, str) = token.1 {
                 if !arg_names.contains(str) {
                     if parse_context.exists_const(str) {
-                        replace_consts.push((token.0, parse_context.lookup_const(str)));
+                        replace_consts.push((token.0, parse_context.lookup_const(str, parse_context)));
                     } else {
-                        return PResult::Err(None, ParseError::new("Not an argument or const!".to_string()));
+                        return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Not an argument or const!".to_string()));
                     }
                 }
             }
         }
         for x in replace_consts {
             match x.1 {
-                PResult::Ok(_, val) => {
+                PResult::Ok(val) => {
                     tokens[x.0] = Token::Number(Span::new(0, 0), val.to_string());
                 },
-                PResult::Err(_, err) => {
-                    return PResult::Err(None, err);
+                PResult::Err(err) => {
+                    return PResult::Err(err);
                 }
             }
         }
 
-        PResult::Ok(None, Self {
+        PResult::Ok(Self {
             name,
             args: finished_args,
             tokens,
@@ -605,79 +623,7 @@ impl Display for RegisterError {
 
 impl Error for RegisterError {}
 
-#[derive(Debug)]
-pub(crate) struct ParseError(String);
-
-impl ParseError {
-
-    pub fn new(msg: String) -> Self {
-        Self(msg)
-    }
-
-}
-
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*self.0)
-    }
-}
-
-impl Error for ParseError {}
-
-pub(crate) enum PResult<T: Sized> {
-    Ok(Option<Rc<RefCell<DiagnosticBuilder>>>, T),
-    Err(Option<Rc<RefCell<DiagnosticBuilder>>>, ParseError),
-}
-
-impl<T: Sized> PResult<T> {
-
-    pub fn diagnostics_mut(&mut self) -> Rc<RefCell<DiagnosticBuilder>> {
-        match self {
-            PResult::Ok(diagnostics_builder, val) => {
-                match diagnostics_builder {
-                    None => {
-                        diagnostics_builder.replace(Rc::new(RefCell::new(DiagnosticBuilder::new())));
-                    },
-                    Some(_) => {},
-                };
-                diagnostics_builder.as_mut().unwrap().clone()
-            },
-            PResult::Err(diagnostics_builder, err) => {
-                match diagnostics_builder {
-                    None => {
-                        diagnostics_builder.replace(Rc::new(RefCell::new(DiagnosticBuilder::new())));
-                    },
-                    Some(_) => {},
-                };
-                diagnostics_builder.as_mut().unwrap().clone()
-            },
-        }
-    }
-
-    pub fn diagnostics(&mut self) -> Rc<RefCell<DiagnosticBuilder>> {
-        match self {
-            PResult::Ok(diagnostics_builder, val) => {
-                match diagnostics_builder {
-                    None => {
-                        diagnostics_builder.replace(Rc::new(RefCell::new(DiagnosticBuilder::new())));
-                    },
-                    Some(_) => {},
-                };
-                diagnostics_builder.as_ref().unwrap().clone()
-            },
-            PResult::Err(diagnostics_builder, err) => {
-                match diagnostics_builder {
-                    None => {
-                        diagnostics_builder.replace(Rc::new(RefCell::new(DiagnosticBuilder::new())));
-                    },
-                    Some(_) => {},
-                };
-                diagnostics_builder.as_ref().unwrap().clone()
-            },
-        }
-    }
-
-}
+pub type PResult<T> = Result<T, DiagnosticBuilder>;
 
 /*
 impl<T: Sized> Try for PResult<T> {
