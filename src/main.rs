@@ -35,7 +35,7 @@ fn main() {
         match result {
             Result::Ok(val) => println!("Result: {:?}", val),
             Result::Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {}", err);
             }
         }
     }

@@ -132,10 +132,18 @@ impl DiagnosticItem {
     pub fn to_string(&self, input: &String) -> String {
         match self {
             DiagnosticItem::Error(str, span) => {
-                input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                if !span.is_none() {
+                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                } else {
+                    input.to_owned() + "\n" + str
+                }
             },
             DiagnosticItem::Suggestion(str, span) => {
-                input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                if !span.is_none() {
+                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                } else {
+                    input.to_owned() + "\n" + str
+                }
             },
             DiagnosticItem::Note(str) => {
                 String::from("note: ") + str

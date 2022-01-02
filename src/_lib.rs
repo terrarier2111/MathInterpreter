@@ -39,6 +39,7 @@ impl Default for DiagnosticsPrintingOrder {
 }
 
 pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<f64>> {
+    eval_ctx.parse_ctx.set_input(input.clone());
     __lib::eval(input, eval_ctx)
 }
 
