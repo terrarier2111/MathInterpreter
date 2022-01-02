@@ -14,7 +14,9 @@ Features are:
 ✅ | Defining and using functions\
 ❌ | Inferred multiplication i.e: `4 (3 + 2)` = `20`\
 ❌ | Recursive functions\
-❌ | Proper error propagation and providing suggestions\
+🛠️ | Proper error propagation and providing suggestions\
 ❌ | Customizable decimal accuracy\
 ❌ | Multithreading support for expensive calculations\
-❌ | Complete validation of input
+🛠️ | Validation of input\
+❌ | Equation solving/simplification\
+❌ | Api
