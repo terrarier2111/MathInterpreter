@@ -4,8 +4,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 use rust_decimal::Decimal;
-use crate::error::{DiagnosticBuilder, DiagnosticItem, Span};
-use crate::shared::{Associativity, OpKind, SignKind, Token, TokenKind};
+use crate::error::{DiagnosticBuilder, Span};
+use crate::shared::{Associativity, OpKind, Token, TokenKind};
 
 pub(crate) struct Parser {
 

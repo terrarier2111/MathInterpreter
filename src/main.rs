@@ -1,15 +1,15 @@
-use crate::lexer::Lexer;
-use crate::parser::{ParseContext, Parser, PResult};
-
 mod lexer;
 mod parser;
 mod shared;
 mod utils;
 mod error;
 mod equation_solver;
+mod _lib;
+mod __lib;
+use crate::_lib::{Config, DiagnosticsConfig};
 
 fn main() {
-    let mut context = ParseContext::new();
+    /*let mut context = ParseContext::new();
     loop {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
         let mut lexer = Lexer::new();
@@ -24,6 +24,17 @@ fn main() {
         match parsed {
             PResult::Ok(_, val) => println!("Result: {:?}", val),
             PResult::Err(_, err) => {
+                println!("Error: {:?}", err);
+            }
+        }
+    }*/
+    let mut context = _lib::new_eval_ctx(Config::new(10, DiagnosticsConfig::default()));
+    loop {
+        let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
+        let result = _lib::eval(input, &mut context);
+        match result {
+            Result::Ok(val) => println!("Result: {:?}", val),
+            Result::Err(err) => {
                 println!("Error: {:?}", err);
             }
         }
