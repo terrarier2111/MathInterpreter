@@ -1,8 +1,9 @@
 use crate::Config;
 use crate::lexer::Lexer;
 use crate::parser::{ParseContext, Parser, PResult};
+use crate::shared::Number;
 
-pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<f64>> {
+pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>> {
     let lexer = Lexer::new();
     let tokens = match lexer.lex(input) {
         Ok(val) => val,

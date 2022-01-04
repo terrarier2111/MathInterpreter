@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use rust_decimal::MathematicalOps;
+use rust_decimal::prelude::ToPrimitive;
 use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{Associativity, OpKind, Token, TokenKind};
+use crate::shared::{Associativity, Number, OpKind, Token, TokenKind};
 
 pub(crate) struct Parser {
 
@@ -103,7 +105,7 @@ impl Parser {
         PResult::Ok(())
     }
 
-    pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<f64>> {
+    pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
         let mut eq_location = usize::MAX;
         let mut brace_start = usize::MAX;
         let mut brace_end = usize::MAX;
@@ -202,7 +204,7 @@ impl Parser {
 pub(crate) struct ParseContext {
 
     input: String,
-    vars: HashMap<String, (bool, f64)>,
+    vars: HashMap<String, (bool, Number)>,
     funcs: HashMap<String, (bool, Function)>,
 
 }
@@ -217,8 +219,8 @@ impl ParseContext {
         };
         let pi = String::from("pi");
         let e = String::from("e");
-        ret.register_constant(&pi, std::f64::consts::PI);
-        ret.register_constant(&e, std::f64::consts::E);
+        ret.register_constant(&pi, Number::PI);
+        ret.register_constant(&e, Number::E);
         ret
     }
 
@@ -235,7 +237,7 @@ impl ParseContext {
         false
     }
 
-    pub fn lookup_const(&self, const_name: &String, parse_ctx: &ParseContext) -> PResult<f64> {
+    pub fn lookup_const(&self, const_name: &String, parse_ctx: &ParseContext) -> PResult<Number> {
         let const_name = const_name.to_lowercase();
         let tmp = *self.vars.get(const_name.as_str()).unwrap();
         if !tmp.0 {
@@ -249,12 +251,12 @@ impl ParseContext {
         self.vars.contains_key(&*var_name)
     }
 
-    pub fn lookup_var(&self, var_name: &String) -> f64 {
+    pub fn lookup_var(&self, var_name: &String) -> Number {
         let var_name = var_name.to_lowercase();
         (*self.vars.get(var_name.as_str()).unwrap()).1
     }
 
-    pub fn register_var(&mut self, var_name: &String, value: f64) -> Result<bool, DiagnosticBuilder> {
+    pub fn register_var(&mut self, var_name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
         let var_name = var_name.to_lowercase();
         if self.exists_fn(&var_name) {
             return Err(DiagnosticBuilder::from_input_and_err(self.input.clone(), "There is already a variable with this name.".to_string()));
@@ -273,7 +275,7 @@ impl ParseContext {
     }
 
     /// For internal use only!
-    pub fn register_constant(&mut self, var_name: &String, value: f64) -> bool {
+    pub fn register_constant(&mut self, var_name: &String, value: Number) -> bool {
         let var_name = var_name.to_lowercase();
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -380,8 +382,8 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &mut ParseContext) -> 
     PResult::Ok(output)
 }
 
-pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<f64> {
-    let mut num_stack: Vec<f64> = vec![];
+pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<Number> {
+    let mut num_stack: Vec<Number> = vec![];
     for token in input {
         match token {
             Token::OpenParen(_) => unreachable!(),
@@ -426,7 +428,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResu
                     OpKind::Pow => {
                         let num_2 = num_stack.pop().unwrap();
                         let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1.powf(num_2))
+                        num_stack.push(num_1.powf(num_2.to_f64().unwrap()))
                     },
                     OpKind::OpenParen => unreachable!(),
                 }
@@ -434,7 +436,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResu
             Token::Literal(_, _) => {
                 return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Failed to evaluate literal correctly!".to_string(), token.span()));
             },
-            Token::Number(_, num) => num_stack.push(num.parse::<f64>().unwrap()), // TODO: Improve this!
+            Token::Number(_, num) => num_stack.push(num.parse::<Number>().unwrap()),
             Token::Sign(_, _) => unreachable!(),
             Token::Other(_, _) => unreachable!(),
             Token::None => unreachable!(),

@@ -4,6 +4,7 @@ use crate::__lib;
 use crate::__lib::EvalContext;
 use crate::_lib::DiagnosticsPrintingOrder::After;
 use crate::parser::PResult;
+use crate::shared::Number;
 
 pub struct Config {
     decimal_accuracy: u16,
@@ -38,7 +39,7 @@ impl Default for DiagnosticsPrintingOrder {
     }
 }
 
-pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<f64>> {
+pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>> {
     eval_ctx.parse_ctx.set_input(input.clone());
     __lib::eval(input, eval_ctx)
 }
