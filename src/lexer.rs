@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::{Display, format, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
 use crate::shared::{SignKind, Token, TokenKind};
@@ -163,7 +163,7 @@ impl Lexer {
                                 }
                             },
                         }
-                    } else if x.is_alphabetic() {
+                    } else if x.is_alphabetic() || x == '_' || x == '#' {
                         match &mut token_type {
                             None => {
                                 if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | /**/TokenKind::Sign | TokenKind::Dot) {
@@ -212,22 +212,3 @@ impl Lexer {
     }
 
 }
-
-#[derive(Debug)]
-pub struct LexError(String);
-
-impl LexError {
-
-    pub fn new(msg: String) -> Self {
-        Self(msg)
-    }
-
-}
-
-impl Display for LexError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0.as_str())
-    }
-}
-
-impl Error for LexError {}

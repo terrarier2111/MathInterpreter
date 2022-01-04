@@ -1,7 +1,7 @@
 // FIXME: Rename this to lib.rs once possible!
 
 use crate::__lib;
-use crate::__lib::{EvalContext, EvalError};
+use crate::__lib::EvalContext;
 use crate::_lib::DiagnosticsPrintingOrder::After;
 use crate::parser::PResult;
 

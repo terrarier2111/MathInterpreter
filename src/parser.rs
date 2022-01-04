@@ -1,9 +1,6 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
-use rust_decimal::Decimal;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{Associativity, OpKind, Token, TokenKind};
 
@@ -58,7 +55,7 @@ impl Parser {
                             }
                         },
                         Token::Eq(_) => {
-                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Eq at wrong location!".to_string(), token.span()));
+                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "`=` at wrong location!".to_string(), token.span()));
                         },
                         Token::VertBar(_) => {
                             todo!()
@@ -70,7 +67,7 @@ impl Parser {
                             }
                         },
                         Token::Dot(_) => {
-                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Dot at wrong location!".to_string(), token.span()));
+                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "`.` at wrong location!".to_string(), token.span()));
                         },
                         Token::Op(_, _) => {},
                         Token::Literal(_, _) => {},
@@ -138,7 +135,7 @@ impl Parser {
                 if brace_end == usize::MAX {
                     return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
                 }
-                let mut func_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
+                let func_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
                     x
                 } else {
                     return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
@@ -159,7 +156,7 @@ impl Parser {
             } else if brace_end != usize::MAX {
                 return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
             } else {
-                let mut var_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
+                let var_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
                     x
                 } else {
                     return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
@@ -174,58 +171,27 @@ impl Parser {
         match self.action.clone() {
             Action::DefineVar(name) => {
                 // Perform variable and function lookup and evaluation
-                self.handle_vars_and_fn_calls(parse_context);
+                self.handle_vars_and_fn_calls(parse_context)?;
 
                 // Perform the evaluation of the variable definition
-                let mut rpn = shunting_yard(self.tokens.clone(), parse_context);
-                let result = match rpn {
-                    PResult::Ok(rpn) => eval_rpn(rpn, parse_context),
-                    PResult::Err(err) => return PResult::Err(err),
-                };
-                match result {
-                    PResult::Ok(val) => {
-                        parse_context.register_var(&name, val);
-                        PResult::Ok(Some(val))
-                    },
-                    PResult::Err(err) => {
-                        PResult::Err(err)
-                    }
-                }
-
+                let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
+                let result = eval_rpn(rpn, parse_context)?;
+                parse_context.register_var(&name, result)?;
+                PResult::Ok(Some(result))
             }
             Action::DefineFunc(name, args) => {
-                match Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context) {
-                    PResult::Ok(func) => {
-                        parse_context.register_func(func);
-                        PResult::Ok(None)
-                    }
-                    PResult::Err(err) => {
-                        PResult::Err(err)
-                    }
-                }
-
+                let func = Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context)?;
+                parse_context.register_func(func);
+                PResult::Ok(None)
             },
             Action::Eval => {
                 // Perform variable and function lookup and evaluation
-                self.handle_vars_and_fn_calls(parse_context);
+                self.handle_vars_and_fn_calls(parse_context)?;
 
                 // Perform the evaluation of the input statement
-                let mut rpn = shunting_yard(self.tokens.clone(), parse_context);
-                let result = match rpn {
-                    PResult::Ok(rpn) => {
-                        eval_rpn(rpn, parse_context)
-                    },
-                    PResult::Err(err) => PResult::Err(err),
-                };
-                match result {
-                    PResult::Ok(val) => {
-                        PResult::Ok(Some(val))
-                    }
-                    PResult::Err(err) => {
-                        PResult::Err(err)
-                    }
-                }
-
+                let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
+                let result = eval_rpn(rpn, parse_context)?;
+                PResult::Ok(Some(result))
             },
             Action::DefineRecFunc(_, _, _) => {
                 todo!()
@@ -272,9 +238,8 @@ impl ParseContext {
     }
 
     pub fn lookup_const(&self, const_name: &String, parse_ctx: &ParseContext) -> PResult<f64> {
-        // TODO: Improve error handling!
         let const_name = const_name.to_lowercase();
-        let tmp = (*self.vars.get(const_name.as_str()).unwrap());
+        let tmp = *self.vars.get(const_name.as_str()).unwrap();
         if !tmp.0 {
             return PResult::Ok(tmp.1);
         }
@@ -291,10 +256,10 @@ impl ParseContext {
         (*self.vars.get(var_name.as_str()).unwrap()).1
     }
 
-    pub fn register_var(&mut self, var_name: &String, value: f64) -> Result<bool, RegisterError> {
+    pub fn register_var(&mut self, var_name: &String, value: f64) -> Result<bool, DiagnosticBuilder> {
         let var_name = var_name.to_lowercase();
         if self.exists_fn(&var_name) {
-            return Err(RegisterError("There is already a function with this name.".to_string()));
+            return Err(DiagnosticBuilder::from_input_and_err(self.input.clone(), "There is already a variable with this name.".to_string()));
         }
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -548,20 +513,13 @@ impl Function {
                     if parse_context.exists_const(str) {
                         replace_consts.push((token.0, parse_context.lookup_const(str, parse_context)));
                     } else {
-                        return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Not an argument or const!".to_string()));
+                        return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Not an argument or const!".to_string(), *span));
                     }
                 }
             }
         }
         for x in replace_consts {
-            match x.1 {
-                PResult::Ok(val) => {
-                    tokens[x.0] = Token::Number(Span::new(0, 0), val.to_string());
-                },
-                PResult::Err(err) => {
-                    return PResult::Err(err);
-                }
-            }
+            tokens[x.0] = Token::Number(Span::new(0, 0), x.1?.to_string());
         }
 
         PResult::Ok(Self {
@@ -612,29 +570,4 @@ impl FunctionArg {
 
 }
 
-#[derive(Debug)]
-pub(crate) struct RegisterError(String);
-
-impl Display for RegisterError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*self.0)
-    }
-}
-
-impl Error for RegisterError {}
-
 pub type PResult<T> = Result<T, DiagnosticBuilder>;
-
-/*
-impl<T: Sized> Try for PResult<T> {
-    type Output = ();
-    type Residual = ();
-
-    fn from_output(output: Self::Output) -> Self {
-        todo!()
-    }
-
-    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
-        todo!()
-    }
-}*/
