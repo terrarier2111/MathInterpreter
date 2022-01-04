@@ -1,5 +1,3 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use crate::Config;
 use crate::lexer::Lexer;
 use crate::parser::{ParseContext, Parser, PResult};

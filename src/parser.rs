@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{Associativity, OpKind, Token, TokenKind};
 

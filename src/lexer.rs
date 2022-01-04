@@ -1,5 +1,3 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
 use crate::shared::{SignKind, Token, TokenKind};
@@ -54,8 +52,12 @@ impl Lexer {
                     Some(Token::OpenParen(c.0))
                 },
                 ')' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    let last = tokens.last().unwrap().kind();
+                    if !tokens.is_empty() && matches!(last, TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq) {
                         return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
+                    }
+                    if !tokens.is_empty() && matches!(last, TokenKind::Sign) {
+                        unimplemented!("Signs in front of `(` are currently unsupported!")
                     }
                     Some(Token::ClosedParen(c.0))
                 },
