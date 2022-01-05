@@ -12,7 +12,7 @@ Features are:
 ✅ | Performing basic calculations\
 ✅ | Defining and using variables\
 ✅ | Defining and using functions\
-✅ | Better decimal accuracy\
+✅ | 96 bit decimal accuracy\
 🛠️ | Recursive functions\
 🛠️ | Proper error propagation and providing suggestions\
 🛠️ | Validation of input\
