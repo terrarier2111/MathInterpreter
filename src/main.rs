@@ -28,7 +28,7 @@ fn main() {
             }
         }
     }*/
-    let mut context = _lib::new_eval_ctx(Config::new(10, DiagnosticsConfig::default()));
+    let mut context = _lib::new_eval_ctx(Config::new(DiagnosticsConfig::default()));
     loop {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
         let result = _lib::eval(input, &mut context);

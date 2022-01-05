@@ -205,7 +205,8 @@ pub(crate) struct ParseContext {
 
     input: String,
     vars: HashMap<String, (bool, Number)>,
-    funcs: HashMap<String, (bool, Function)>,
+    funcs: HashMap<String, Function>,
+    builtin_funcs: HashMap<String, BuiltInFunction>,
 
 }
 
@@ -216,11 +217,13 @@ impl ParseContext {
             input: String::new(),
             vars: Default::default(),
             funcs: Default::default(),
+            builtin_funcs: Default::default()
         };
         let pi = String::from("pi");
         let e = String::from("e");
         ret.register_constant(&pi, Number::PI);
         ret.register_constant(&e, Number::E);
+        // ret.register_builtin_func(Function)
         ret
     }
 
@@ -275,7 +278,7 @@ impl ParseContext {
     }
 
     /// For internal use only!
-    pub fn register_constant(&mut self, var_name: &String, value: Number) -> bool {
+    fn register_constant(&mut self, var_name: &String, value: Number) -> bool {
         let var_name = var_name.to_lowercase();
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -298,42 +301,26 @@ impl ParseContext {
     pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> Vec<Token> {
         let name = name.to_lowercase();
         let func = self.funcs.get(&*name).unwrap();
-        func.1.build_tokens(args)
+        func.build_tokens(args)
     }
 
-    pub fn register_func(&mut self, func: Function) -> bool {
+    pub fn register_func(&mut self, func: Function) {
         let func_name = func.name.to_lowercase();
-        if let Some(x) = self.funcs.get(func_name.as_str()) {
-            if x.0 {
-                self.funcs.insert(func_name, (false, func));
-                true
-            } else {
-                false
-            }
-        } else {
-            self.funcs.insert(func_name, (false, func));
-            true
-        }
+        self.funcs.insert(func_name, func);
     }
 
-    pub fn register_builtin_func(&mut self, func: Function) -> bool {
+    pub fn exists_builtin_func(&self, name: &String) -> bool {
+        self.builtin_funcs.contains_key(name)
+    }
+
+    fn register_builtin_func(&mut self, func: BuiltInFunction) {
         let func_name = func.name.to_lowercase();
-        if let Some(x) = self.funcs.get(func_name.as_str()) {
-            if x.0 {
-                self.funcs.insert(func_name, (false, func));
-                true
-            } else {
-                false
-            }
-        } else {
-            self.funcs.insert(func_name, (false, func));
-            true
-        }
+        self.builtin_funcs.insert(func_name, func);
     }
 
 }
 
-pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<Vec<Token>> {
+pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
     let mut output = vec![];
     let mut operator_stack: Vec<OpKind> = vec![];
     for token in input {
@@ -382,7 +369,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &mut ParseContext) -> 
     PResult::Ok(output)
 }
 
-pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &mut ParseContext) -> PResult<Number> {
+pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Number> {
     let mut num_stack: Vec<Number> = vec![];
     for token in input {
         match token {
@@ -536,6 +523,36 @@ impl Function {
             offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
         }
         ret
+    }
+
+}
+
+pub(crate) struct BuiltInFunction {
+
+    name: String,
+    arg_count: usize,
+    inner: Box<dyn Fn(Vec<Number>) -> Number>,
+
+}
+
+impl BuiltInFunction {
+
+    pub fn new(name: String, arg_count: usize, inner: Box<dyn Fn(Vec<Number>) -> Number>) -> Self {
+        Self {
+            name,
+            arg_count,
+            inner
+        }
+    }
+
+    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
+        let mut args = vec![];
+        for arg in arg_values.iter() {
+            let rpn = shunting_yard(arg.clone(), parse_ctx)?;
+            let result = eval_rpn(rpn, parse_ctx)?;
+            args.push(result);
+        }
+        Ok(vec![Token::Number(Span::NONE, (self.inner)(args).to_string())])
     }
 
 }

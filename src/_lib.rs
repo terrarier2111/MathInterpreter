@@ -7,15 +7,13 @@ use crate::parser::PResult;
 use crate::shared::Number;
 
 pub struct Config {
-    decimal_accuracy: u16,
     diagnostics: DiagnosticsConfig,
 }
 
 impl Config {
 
-    pub fn new(decimal_accuracy: u16, diagnostics: DiagnosticsConfig) -> Self {
+    pub fn new(diagnostics: DiagnosticsConfig) -> Self {
         Self {
-            decimal_accuracy,
             diagnostics
         }
     }
