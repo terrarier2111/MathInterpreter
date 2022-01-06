@@ -93,7 +93,7 @@ impl Parser {
                 for _ in 0..(end - start) {
                     self.tokens.remove(start);
                 }
-                let result = parse_context.call_func(&func, finished_args);
+                let result = parse_context.call_func(&func, finished_args)?;
                 self.tokens.insert(pr.0, Token::OpenParen(pr.0));
                 let len = result.len();
                 for token in result.into_iter().enumerate() {
@@ -223,7 +223,9 @@ impl ParseContext {
         let e = String::from("e");
         ret.register_constant(&pi, Number::PI);
         ret.register_constant(&e, Number::E);
-        // ret.register_builtin_func(Function)
+        ret.register_builtin_func(BuiltInFunction::new("abs".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().abs()
+        })));
         ret
     }
 
@@ -298,10 +300,13 @@ impl ParseContext {
         self.funcs.contains_key(&*func_name)
     }
 
-    pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> Vec<Token> {
+    pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
         let name = name.to_lowercase();
-        let func = self.funcs.get(&*name).unwrap();
-        func.build_tokens(args)
+        let func = self.funcs.get(&*name);
+        match func {
+            None => self.call_builtin_func(&name, args),
+            Some(func) => Ok(func.build_tokens(args)),
+        }
     }
 
     pub fn register_func(&mut self, func: Function) {
@@ -309,8 +314,17 @@ impl ParseContext {
         self.funcs.insert(func_name, func);
     }
 
-    pub fn exists_builtin_func(&self, name: &String) -> bool {
-        self.builtin_funcs.contains_key(name)
+    fn exists_builtin_func(&self, func_name: &String) -> bool {
+        let func_name = func_name.to_lowercase();
+        self.builtin_funcs.contains_key(&*func_name)
+    }
+
+    fn call_builtin_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
+        let func_name = name.to_lowercase();
+        match self.builtin_funcs.get(&*func_name) {
+            None => Err(DiagnosticBuilder::from_input_and_err(self.input.clone(), format!("There is no function such as `{}`.", name))),
+            Some(func) => func.build_tokens(args, self),
+        }
     }
 
     fn register_builtin_func(&mut self, func: BuiltInFunction) {
@@ -350,7 +364,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                 operator_stack.push(op);
             },
             Token::Literal(_, _) => {
-                return PResult::Err(DiagnosticBuilder::new("Failed to evaluate literal correctly!".to_string()));
+                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "Failed to evaluate literal correctly!".to_string()));
             },
             Token::Number(_, _) => output.push(token),
             Token::Sign(_, _) => {
