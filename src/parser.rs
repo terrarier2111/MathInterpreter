@@ -226,6 +226,36 @@ impl ParseContext {
         ret.register_builtin_func(BuiltInFunction::new("abs".to_string(), 1, Box::new(|nums| {
             nums.first().unwrap().abs()
         })));
+        ret.register_builtin_func(BuiltInFunction::new("sin".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().sin()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("cos".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().cos()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("tan".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().tan()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("ln".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().ln()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("round".to_string(), 1, Box::new(|nums| { // FIXME: Should we even keep this one?
+            nums.first().unwrap().round()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("floor".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().floor()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("ceil".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().ceil()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("sqrt".to_string(), 1, Box::new(|nums| {
+            nums.first().unwrap().sqrt().unwrap()
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("max".to_string(), 2, Box::new(|nums| {
+            nums[0].max(nums[1])
+        })));
+        ret.register_builtin_func(BuiltInFunction::new("min".to_string(), 2, Box::new(|nums| {
+            nums[0].min(nums[1])
+        })));
         ret
     }
 
@@ -297,7 +327,7 @@ impl ParseContext {
 
     pub fn exists_fn(&self, func_name: &String) -> bool {
         let func_name = func_name.to_lowercase();
-        self.funcs.contains_key(&*func_name)
+        self.funcs.contains_key(&*func_name) || self.builtin_funcs.contains_key(&*func_name)
     }
 
     pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
@@ -429,7 +459,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                     OpKind::Pow => {
                         let num_2 = num_stack.pop().unwrap();
                         let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1.powf(num_2.to_f64().unwrap()))
+                        num_stack.push(num_1.powd(num_2))
                     },
                     OpKind::OpenParen => unreachable!(),
                 }
