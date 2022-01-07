@@ -101,7 +101,7 @@ impl Lexer {
                             return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                         }
                         match &tokens.last().unwrap() {
-                            Token::Op(_, _) => {
+                            Token::Op(_, _) | Token::OpenParen(_) => {
                                 Some(Token::Sign(c.0, SignKind::Plus))
                             }
                             _ => {
@@ -121,7 +121,7 @@ impl Lexer {
                             return Err(DiagnosticBuilder::from_input_and_err_with_span(input.clone(), format!("`{}` at wrong location.", x), Span::from_idx(c.0)))
                         }
                         match &tokens.last().unwrap() {
-                            Token::Op(sp, _) => {
+                            Token::Op(sp, _) | Token::OpenParen(sp) => {
                                 Some(Token::Sign(*sp, SignKind::Minus))
                             }
                             _ => {
