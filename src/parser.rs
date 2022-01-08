@@ -3,6 +3,9 @@ use rust_decimal::MathematicalOps;
 use rust_decimal::prelude::ToPrimitive;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{Associativity, Number, OpKind, Token, TokenKind};
+#[macro_use]
+use crate::parser::macros as mac;
+use crate::{register_builtin_func, register_const};
 
 pub(crate) struct Parser {
 
@@ -219,43 +222,19 @@ impl ParseContext {
             funcs: Default::default(),
             builtin_funcs: Default::default()
         };
-        let pi = String::from("pi");
-        let e = String::from("e");
-        ret.register_constant(&pi, Number::PI);
-        ret.register_constant(&e, Number::E);
-        ret.register_builtin_func(BuiltInFunction::new("abs".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().abs()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("sin".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().sin()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("cos".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().cos()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("tan".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().tan()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("ln".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().ln()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("round".to_string(), 1, Box::new(|nums| { // FIXME: Should we even keep this one?
-            nums.first().unwrap().round()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("floor".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().floor()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("ceil".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().ceil()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("sqrt".to_string(), 1, Box::new(|nums| {
-            nums.first().unwrap().sqrt().unwrap()
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("max".to_string(), 2, Box::new(|nums| {
-            nums[0].max(nums[1])
-        })));
-        ret.register_builtin_func(BuiltInFunction::new("min".to_string(), 2, Box::new(|nums| {
-            nums[0].min(nums[1])
-        })));
+        register_const!(ret, "pi", Number::PI);
+        register_const!(ret, "e", Number::E);
+        register_builtin_func!(ret, "abs", 1, |nums| nums[0].abs());
+        register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
+        register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
+        register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
+        register_builtin_func!(ret, "ln", 1, |nums| nums[0].ln());
+        register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
+        register_builtin_func!(ret, "floor", 1, |nums| nums[0].floor());
+        register_builtin_func!(ret, "ceil", 1, |nums| nums[0].ceil());
+        register_builtin_func!(ret, "sqrt", 1, |nums| nums[0].sqrt().unwrap());
+        register_builtin_func!(ret, "max", 2, |nums| nums[0].max(nums[1]));
+        register_builtin_func!(ret, "min", 2, |nums| nums[0].min(nums[1]));
         ret
     }
 
@@ -310,7 +289,7 @@ impl ParseContext {
     }
 
     /// For internal use only!
-    fn register_constant(&mut self, var_name: &String, value: Number) -> bool {
+    pub(crate) fn register_const(&mut self, var_name: &String, value: Number) -> bool {
         let var_name = var_name.to_lowercase();
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -335,7 +314,7 @@ impl ParseContext {
         let func = self.funcs.get(&*name);
         match func {
             None => self.call_builtin_func(&name, args),
-            Some(func) => Ok(func.build_tokens(args)),
+            Some(func) => func.build_tokens(args, self),
         }
     }
 
@@ -560,13 +539,21 @@ impl Function {
         })
     }
 
-    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>) -> Vec<Token> {
+    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
+        if self.args.len() != arg_values.len() {
+            let args_txt = if self.args.len() == 1 {
+                "argument"
+            } else {
+                "arguments"
+            };
+            return Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.args.len(), args_txt, arg_values.len())))
+        }
         let mut ret = self.tokens.clone();
         let mut offset = 0;
         for arg in self.args.iter().enumerate() {
             offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
         }
-        ret
+        Ok(ret)
     }
 
 }
@@ -590,6 +577,14 @@ impl BuiltInFunction {
     }
 
     pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
+        if self.arg_count != arg_values.len() {
+            let args_txt = if self.arg_count == 1 {
+                "argument"
+            } else {
+                "arguments"
+            };
+            return Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.arg_count, args_txt, arg_values.len())))
+        }
         let mut args = vec![];
         for arg in arg_values.iter() {
             let rpn = shunting_yard(arg.clone(), parse_ctx)?;
@@ -632,3 +627,20 @@ impl FunctionArg {
 }
 
 pub type PResult<T> = Result<T, DiagnosticBuilder>;
+
+mod macros {
+    #[macro_export]
+    macro_rules! register_builtin_func {
+        ($ctx:ident, $name:literal, $arg_count:literal, $func:expr/*tt*/) => {
+            $ctx.register_builtin_func(BuiltInFunction::new($name.to_string(), $arg_count, Box::new($func)));
+        };
+    }
+
+    #[macro_export]
+    macro_rules! register_const {
+        ($ctx:ident, $name:literal, $value:expr) => {
+            let tmp = String::from($name);
+            $ctx.register_const(&tmp, $value);
+        };
+    }
+}
