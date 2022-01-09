@@ -13,6 +13,7 @@ Features are:
 ✅ | Defining and using variables\
 ✅ | Defining and using functions\
 ✅ | 96 bit decimal accuracy\
+✅ | Default functions/consts\
 🛠️ | Recursive functions\
 🛠️ | Proper error propagation and providing suggestions\
 🛠️ | Validation of input\
