@@ -20,4 +20,4 @@ Features are:
 🛠️ | Api\
 ❌ | Inferred multiplication i.e: `4 (3 + 2)` = `20`\
 ❌ | Equation solving/simplification\
-❌ | Multithreading support for expensive calculations\
+❌ | Multithreading support for expensive calculations
