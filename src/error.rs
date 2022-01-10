@@ -45,7 +45,7 @@ impl DiagnosticBuilder {
         }
     }
 
-    pub fn from_input_and_err_with_span(input: String, error: String, span: Span) -> Self {
+    pub(crate) fn from_input_and_err_with_span(input: String, error: String, span: Span) -> Self {
         let mut ret = Self {
             input,
             items: vec![]
@@ -54,7 +54,7 @@ impl DiagnosticBuilder {
         ret
     }
 
-    pub fn from_input_and_err(input: String, error: String) -> Self {
+    pub(crate) fn from_input_and_err(input: String, error: String) -> Self {
         let mut ret = Self {
             input,
             items: vec![]
@@ -151,4 +151,30 @@ impl DiagnosticItem {
         }
     }
 
+}
+
+#[macro_export]
+macro_rules! diagnostic_builder {
+    ($input:expr, $error:literal) => {
+        Err(DiagnosticBuilder::from_input_and_err($input, $error.to_string()))
+    };
+    ($input:expr, $error:expr) => {
+        Err(DiagnosticBuilder::from_input_and_err($input, $error))
+    };
+    ($input:expr, $error:literal, $sp:expr) => {
+        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error.to_string(), Span::from_idx($sp)))
+    };
+    ($input:expr, $error:expr, $sp:expr) => {
+        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error, Span::from_idx($sp)))
+    };
+}
+
+#[macro_export]
+macro_rules! diagnostic_builder_spanned {
+    ($input:expr, $error:literal, $sp:expr) => {
+        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error.to_string(), $sp))
+    };
+    ($input:expr, $error:expr, $sp:expr) => {
+        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error, $sp))
+    };
 }

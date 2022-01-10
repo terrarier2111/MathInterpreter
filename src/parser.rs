@@ -5,7 +5,9 @@ use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{Associativity, Number, OpKind, Token, TokenKind};
 #[macro_use]
 use crate::parser::macros as mac;
-use crate::{register_builtin_func, register_const};
+use crate::{diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const};
+
+const NONE: usize = usize::MAX;
 
 pub(crate) struct Parser {
 
@@ -27,7 +29,7 @@ impl Parser {
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs =  vec![];
         for token in self.tokens.iter().enumerate() {
-            if let Token::Literal(_, content) = token.1 {
+            if let Token::Literal(_, content, _) = token.1 {
                 if parse_context.exists_var(content) {
                     replaced_tokens.push((token.0, parse_context.lookup_var(content)))
                 } else if parse_context.exists_fn(content) {
@@ -57,8 +59,8 @@ impl Parser {
                                 break;
                             }
                         },
-                        Token::Eq(_) => {
-                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "`=` at wrong location!".to_string(), token.span()));
+                        Token::Eq(sp) => {
+                            return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location!", *sp);
                         },
                         Token::VertBar(_) => {
                             todo!()
@@ -69,11 +71,11 @@ impl Parser {
                                 arg_start = start + offset + 1;
                             }
                         },
-                        Token::Dot(_) => {
-                            return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "`.` at wrong location!".to_string(), token.span()));
+                        Token::Dot(sp) => {
+                            return diagnostic_builder!(parse_context.input.clone(), "`.` at wrong location!", *sp);
                         },
                         Token::Op(_, _) => {},
-                        Token::Literal(_, _) => {},
+                        Token::Literal(..) => {},
                         Token::Number(_, _) => {},
                         Token::Sign(_, _) => {},
                         Token::Other(_, _) => {},
@@ -81,7 +83,7 @@ impl Parser {
                     }
                 }
             } else {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call!".to_string()));
+                return diagnostic_builder!(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call!");
             }
             let mut finished_args = vec![];
             let end = args.last().unwrap().1 + 1;
@@ -92,7 +94,7 @@ impl Parser {
                 }
                 finished_args.push(result);
             }
-            if let Token::Literal(_span, func) = pr.1 {
+            if let Token::Literal(_span, func, _) = pr.1 {
                 for _ in 0..(end - start) {
                     self.tokens.remove(start);
                 }
@@ -109,9 +111,9 @@ impl Parser {
     }
 
     pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
-        let mut eq_location = usize::MAX;
-        let mut brace_start = usize::MAX;
-        let mut brace_end = usize::MAX;
+        let mut eq_location = NONE;
+        let mut brace_start = NONE;
+        let mut brace_end = NONE;
         let mut arguments_list = vec![];
         for token in self.tokens.iter().enumerate() {
             match token.1 {
@@ -124,7 +126,7 @@ impl Parser {
                 Token::Comma(_) => arguments_list.push(token.0),
                 Token::Dot(_) => {}
                 Token::Op(_, _) => {}
-                Token::Literal(_, _) => {}
+                Token::Literal(..) => {}
                 Token::Number(_, _) => {}
                 Token::Sign(_, _) => {}
                 Token::Other(_, _) => unreachable!(),
@@ -132,40 +134,73 @@ impl Parser {
                 Token::VertBar(_) => {}
             }
         }
-        let mut action = Action::Eval;
-        if eq_location != usize::MAX {
-            if brace_start != usize::MAX {
-                if brace_end == usize::MAX {
-                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
+        let mut bar = NONE;
+        let mut rec_eq = NONE;
+        if eq_location != NONE {
+            for token in self.tokens.iter().enumerate() {
+                match token.1 {
+                    Token::OpenParen(_) => brace_start = token.0,
+                    Token::ClosedParen(_) => brace_end = token.0,
+                    Token::Eq(sp) => {
+                        if token.0 != eq_location {
+                            if bar == NONE {
+                                return diagnostic_builder!(parse_context.input.clone(), "Found second `=` before `|`!", *sp);
+                            }
+                            rec_eq = token.0;
+                            break;
+                        }
+                    },
+                    Token::VertBar(sp) => {
+                        if bar != NONE {
+                            return diagnostic_builder!(parse_context.input.clone(), "Found second `|` (only one is allowed)!", *sp);
+                        }
+                        bar = token.0;
+                    },
+                    Token::Comma(_) => arguments_list.push(token.0),
+                    Token::Dot(_) => {}
+                    Token::Op(_, _) => {}
+                    Token::Literal(..) => {}
+                    Token::Number(_, _) => {}
+                    Token::Sign(_, _) => {}
+                    Token::Other(_, _) => unreachable!(),
+                    Token::None => unreachable!(),
                 }
-                let func_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
+            }
+        }
+        let mut action = Action::Eval;
+        if eq_location != NONE {
+            if brace_start != NONE {
+                if brace_end == NONE {
+                    return diagnostic_builder!(parse_context.input.clone(), "Invalid braces!");
+                }
+                let func_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
+                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given!");
                 };
                 let mut arguments = vec![];
                 for x in 0..eq_location {
                     let token = self.tokens.remove(0);
                     if x % 2 == 1 {
-                        if let Token::Literal(_, var) = token {
+                        if let Token::Literal(_, var, _) = token {
                             arguments.push(var);
                         }
                     }
                 }
                 if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
-                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Equal at wrong location!".to_string()));
+                    return diagnostic_builder!(parse_context.input.clone(), "Equal at wrong location!");
                 }
                 action = Action::DefineFunc(func_name, arguments);
-            } else if brace_end != usize::MAX {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Invalid braces!".to_string()));
+            } else if brace_end != NONE {
+                return diagnostic_builder!(parse_context.input.clone(), "Invalid braces!");
             } else {
-                let var_name = if let Token::Literal(_, x) = self.tokens.remove(0) {
+                let var_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "No function name was given!".to_string()));
+                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given!");
                 };
                 if eq_location != 1 {
-                    return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_context.input.clone(), "Equal at wrong location!".to_string()));
+                    return diagnostic_builder!(parse_context.input.clone(), "Equal at wrong location!");
                 }
                 action = Action::DefineVar(var_name);
             }
@@ -257,7 +292,7 @@ impl ParseContext {
         if !tmp.0 {
             return PResult::Ok(tmp.1);
         }
-        PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "Not a const!".to_string()))
+        diagnostic_builder!(parse_ctx.input.clone(), "Not a const!")
     }
 
     pub fn exists_var(&self, var_name: &String) -> bool {
@@ -273,7 +308,7 @@ impl ParseContext {
     pub fn register_var(&mut self, var_name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
         let var_name = var_name.to_lowercase();
         if self.exists_fn(&var_name) {
-            return Err(DiagnosticBuilder::from_input_and_err(self.input.clone(), "There is already a variable with this name.".to_string()));
+            return diagnostic_builder!(self.input.clone(), "There is already a variable with this name.");
         }
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -331,7 +366,7 @@ impl ParseContext {
     fn call_builtin_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
-            None => Err(DiagnosticBuilder::from_input_and_err(self.input.clone(), format!("There is no function such as `{}`.", name))),
+            None => diagnostic_builder!(self.input.clone(), format!("There is no function such as `{}`.", name)),
             Some(func) => func.build_tokens(args, self),
         }
     }
@@ -357,11 +392,12 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                         }
                         output.push(Token::Op(0, op));
                     } else {
-                        return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Invalid parens!".to_string(), token.span()));
+                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Invalid parens!", token.span());
                     }
                 }
             },
             Token::Eq(_) => {},
+            Token::VertBar(_) => {},
             Token::Comma(_) => {},
             Token::Dot(_) => {},
             Token::Op(_, op) => {
@@ -372,18 +408,17 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                 }
                 operator_stack.push(op);
             },
-            Token::Literal(_, _) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "Failed to evaluate literal correctly!".to_string()));
+            Token::Literal(sp, _, _) => {
+                return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Failed to evaluate literal correctly!", sp);
             },
             Token::Number(_, _) => output.push(token),
-            Token::Sign(_, _) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "There was no sign expected!".to_string(), token.span()));
+            Token::Sign(sp, _) => {
+                return diagnostic_builder!(parse_ctx.input.clone(), "There was no sign expected!", sp);
             },
-            Token::Other(_, _) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Other is not allowed here!".to_string(), token.span()));
+            Token::Other(sp, _) => {
+                return diagnostic_builder!(parse_ctx.input.clone(), "Other is not allowed here!", sp);
             },
             Token::None => unreachable!(),
-            Token::VertBar(_) => {}
         }
     }
     for operator in operator_stack.into_iter().rev() {
@@ -398,15 +433,15 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
         match token {
             Token::OpenParen(_) => unreachable!(),
             Token::ClosedParen(_) => unreachable!(),
-            Token::Eq(_) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`=` at wrong location!".to_string(), token.span()));
+            Token::Eq(sp) => {
+                return diagnostic_builder!(parse_ctx.input.clone(), "`=` at wrong location!", sp);
             },
             Token::VertBar(_) => {},
-            Token::Comma(_) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`,` at wrong location!".to_string(), token.span()));
+            Token::Comma(sp) => {
+                return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location!", sp);
             },
-            Token::Dot(_) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "`.` at wrong location!".to_string(), token.span()));
+            Token::Dot(sp) => {
+                return diagnostic_builder!(parse_ctx.input.clone(), "`.` at wrong location!", sp);
             },
             Token::Op(_, op) => {
                 match op {
@@ -443,8 +478,8 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                     OpKind::OpenParen => unreachable!(),
                 }
             },
-            Token::Literal(_, _) => {
-                return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_ctx.input.clone(), "Failed to evaluate literal correctly!".to_string(), token.span()));
+            Token::Literal(sp, lit, _) => {
+                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("Failed to evaluate literal `{}` correctly!", lit), sp);
             },
             Token::Number(_, num) => num_stack.push(num.parse::<Number>().unwrap()),
             Token::Sign(_, _) => unreachable!(),
@@ -453,7 +488,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
         }
     }
     if num_stack.len() != 1 {
-        return PResult::Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation!".to_string()));
+        return diagnostic_builder!(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation!");
     }
     PResult::Ok(num_stack.pop().unwrap())
 }
@@ -501,13 +536,13 @@ pub(crate) struct Function {
 
 impl Function {
 
-    pub fn new(name: String, arg_names: Vec<String>, mut tokens: Vec<Token>, parse_context: &ParseContext) -> PResult<Self> {
+    pub fn new(name: String, arg_names: Vec<String>, mut tokens: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Self> {
         // Detect arguments
         let mut finished_args = vec![];
         for arg in arg_names.iter() {
             let mut arg_positions = vec![];
             for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str) = token.1 {
+                if let Token::Literal(_, str, _) = token.1 {
                     if str == arg {
                         arg_positions.push(token.0);
                     }
@@ -518,13 +553,12 @@ impl Function {
         // Perform constant replacement
         let mut replace_consts = vec![];
         for token in tokens.iter().enumerate() {
-            if let Token::Literal(span, str) = token.1 {
+            if let Token::Literal(span, str, _) = token.1 {
                 if !arg_names.contains(str) {
-                    if parse_context.exists_const(str) {
-                        replace_consts.push((token.0, parse_context.lookup_const(str, parse_context)));
-                    } else {
-                        return PResult::Err(DiagnosticBuilder::from_input_and_err_with_span(parse_context.input.clone(), "Not an argument or const!".to_string(), *span));
+                    if !parse_ctx.exists_const(str) {
+                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Not an argument or const!".to_string(), *span);
                     }
+                    replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
                 }
             }
         }
@@ -546,7 +580,7 @@ impl Function {
             } else {
                 "arguments"
             };
-            return Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.args.len(), args_txt, arg_values.len())))
+            return diagnostic_builder!(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.args.len(), args_txt, arg_values.len()));
         }
         let mut ret = self.tokens.clone();
         let mut offset = 0;
@@ -583,7 +617,7 @@ impl BuiltInFunction {
             } else {
                 "arguments"
             };
-            return Err(DiagnosticBuilder::from_input_and_err(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.arg_count, args_txt, arg_values.len())))
+            return diagnostic_builder!(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.arg_count, args_txt, arg_values.len()));
         }
         let mut args = vec![];
         for arg in arg_values.iter() {
