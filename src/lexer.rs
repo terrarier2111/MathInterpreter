@@ -1,7 +1,7 @@
 use crate::diagnostic_builder;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
-use crate::shared::{SignKind, Token, TokenKind};
+use crate::shared::{OpKind, SignKind, Token, TokenKind};
 
 pub(crate) struct Lexer {
 
@@ -17,6 +17,7 @@ impl Lexer {
         }
     }
 
+    // TODO: Improve dot validation!
     pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
@@ -29,12 +30,6 @@ impl Lexer {
                 }
             }
             let token = match x {
-                /*'.' => { // TODO: Improve dot validation!
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return Err(LexError::new(format!("`{}` at wrong location.", x)))
-                    }
-                    Some(Token::Dot)
-                },*/
                 '|' => {
                     if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Eq | TokenKind::Sign) {
                         return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
@@ -94,7 +89,11 @@ impl Lexer {
                     }
                     Some(Token::Op(c.0, Pow))
                 },
-                '+' => {
+                '+' | '-' | '−' => {
+                    let sign = match c.1 {
+                        '-' | '−' => (SignKind::Minus, OpKind::Minus),
+                        _ => (SignKind::Plus, OpKind::Plus),
+                    };
                     if let Some(token) = token_type.take() {
                         tokens.push(token);
                     }
@@ -103,35 +102,15 @@ impl Lexer {
                             return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                         }
                         match &tokens.last().unwrap() {
-                            Token::Op(_, _) | Token::OpenParen(_) => {
-                                Some(Token::Sign(c.0, SignKind::Plus))
+                            Token::Op(sp, _) | Token::OpenParen(sp) | Token::Eq(sp) => {
+                                Some(Token::Sign(*sp, sign.0)) // FIXME: Is "sp" really correct here or should it rather be "c.0"?
                             }
                             _ => {
-                                Some(Token::Op(c.0, Plus))
+                                Some(Token::Op(c.0, sign.1))
                             }
                         }
                     } else {
-                        Some(Token::Sign(c.0, SignKind::Plus))
-                    }
-                },
-                '-' | '−' => {
-                    if let Some(token) = token_type.take() {
-                        tokens.push(token);
-                    }
-                    if !tokens.is_empty() {
-                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Sign) {
-                            return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
-                        }
-                        match &tokens.last().unwrap() {
-                            Token::Op(sp, _) | Token::OpenParen(sp) => {
-                                Some(Token::Sign(*sp, SignKind::Minus))
-                            }
-                            _ => {
-                                Some(Token::Op(0, Minus))
-                            }
-                        }
-                    } else {
-                        Some(Token::Sign(c.0, SignKind::Minus))
+                        Some(Token::Sign(c.0, sign.0))
                     }
                 },
                 _ => {
