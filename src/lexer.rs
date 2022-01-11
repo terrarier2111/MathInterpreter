@@ -21,6 +21,7 @@ impl Lexer {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for c in input.chars().enumerate() {
+            println!("{:?}", token_type);
             let x = c.1;
             if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
                 if let Some(token) = token_type.take() {
@@ -35,61 +36,61 @@ impl Lexer {
                     Some(Token::Dot)
                 },*/
                 '|' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Eq | TokenKind::Sign) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::VertBar(c.0))
                 },
                 '=' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Eq | TokenKind::Sign) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::Eq(c.0))
                 },
                 '(' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | /**/TokenKind::Dot) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::OpenParen(c.0))
                 },
                 ')' => {
                     let last = tokens.last().unwrap().kind();
-                    if !tokens.is_empty() && matches!(last, TokenKind::VertBar | TokenKind::Dot | TokenKind::Eq) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(last, TokenKind::VertBar | TokenKind::Eq) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     if !tokens.is_empty() && matches!(last, TokenKind::Sign) {
-                        unimplemented!("Signs in front of `(` are currently unsupported!")
+                        unimplemented!("Signs in front of `(` are currently unsupported")
                     }
                     Some(Token::ClosedParen(c.0))
                 },
                 ' ' => Some(Token::None),
                 ',' => {
                     if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::Comma(c.0))
                 },
                 '*' | '×' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::Op(c.0, Multiply))
                 },
                 '/' | ':' | '÷' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign) {
                         return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
                     }
                     Some(Token::Op(c.0, Divide))
                 },
                 '%' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::Op(c.0, Modulo))
                 },
                 '^' => {
-                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Dot | TokenKind::Eq | TokenKind::Sign) {
-                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                    if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign) {
+                        return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                     }
                     Some(Token::Op(c.0, Pow))
                 },
@@ -98,8 +99,8 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Sign) {
-                            return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Sign) {
+                            return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                         }
                         match &tokens.last().unwrap() {
                             Token::Op(_, _) | Token::OpenParen(_) => {
@@ -118,8 +119,8 @@ impl Lexer {
                         tokens.push(token);
                     }
                     if !tokens.is_empty() {
-                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot | TokenKind::Sign) {
-                            return diagnostic_builder!(input.clone(), format!("`{}` at wrong location.", x), c.0);
+                        if matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Sign) {
+                            return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                         }
                         match &tokens.last().unwrap() {
                             Token::Op(sp, _) | Token::OpenParen(sp) => {
@@ -137,13 +138,16 @@ impl Lexer {
                     if x.is_numeric() || x == '.' {
                         match &mut token_type {
                             None => {
+                                // This handles the case in which the last token **is not** part of the current token's literal
                                 if x == '.' {
-                                    return diagnostic_builder!(input.clone(), "`.` at wrong location.", c.0);
+                                    return diagnostic_builder!(input.clone(), "`.` at wrong location", c.0);
                                 }
                                 let mut num = String::from(x);
+                                let mut span_start = c.0;
                                 if !tokens.is_empty() {
                                     let mut has_sign = false;
-                                    if let Token::Sign(_, sign) = tokens.last().unwrap() {
+                                    if let Token::Sign(idx, sign) = tokens.last().unwrap() {
+                                        span_start = *idx;
                                         has_sign = true;
                                         match sign {
                                             SignKind::Plus => {}
@@ -154,14 +158,18 @@ impl Lexer {
                                         tokens.pop();
                                     }
                                 }
-                                token_type = Some(Token::Number(Span::new(0, 0), num));
+                                token_type = Some(Token::Number(Span::from_idx(span_start), num));
                             },
                             Some(token) => {
+                                // This handles the case in which the last token **is** part of the current token's literal
                                 match token {
-                                    Token::Number(_, buffer) => buffer.push(x),
+                                    Token::Number(span, buffer) => {
+                                        buffer.push(x);
+                                        span.expand_hi();
+                                    },
                                     _ => {
                                         tokens.push(token_type.take().unwrap());
-                                        token_type = Some(Token::Number(Span::new(0, 0), String::from(x)))
+                                        token_type = Some(Token::Number(Span::from_idx(c.0), String::from(x)))
                                     },
                                 }
                             },
@@ -169,22 +177,30 @@ impl Lexer {
                     } else if x.is_alphabetic() || x == '_' || x == '#' {
                         match &mut token_type {
                             None => {
-                                if !tokens.is_empty() && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar | TokenKind::Dot) {
-                                    return diagnostic_builder!(input.clone(), format!("`{:?}` at wrong location.", tokens.last().unwrap().kind().to_string()), c.0);
-                                }
-                                let sign = if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
-                                    (idx, Some(kind))
+                                // This handles the case in which the last token **is not** part of the current token's literal
+
+                                let sign = if !tokens.is_empty() {
+                                    if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
+                                        (idx, Some(kind))
+                                    } else {
+                                        (c.0, None)
+                                    }
                                 } else {
                                     (c.0, None)
                                 };
-                                token_type = Some(Token::Literal(Span::new(sign.0, c.0), String::from(x), sign.1));
+
+                                token_type = Some(Token::Literal(Span::from_idx(sign.0), String::from(x), sign.1));
                             },
                             Some(token) => {
+                                // This handles the case in which the last token **is** part of the current token's literal
                                 match token {
-                                    Token::Literal(_, buffer, _) => buffer.push(x),
+                                    Token::Literal(span, buffer, _) => {
+                                        buffer.push(x);
+                                        span.expand_hi();
+                                    },
                                     _ => {
                                         tokens.push(token_type.take().unwrap());
-                                        token_type = Some(Token::Literal(Span::new(0, 0), String::from(x), todo!()));
+                                        token_type = Some(Token::Literal(Span::from_idx(c.0), String::from(x), None));
                                     },
                                 }
                             },

@@ -7,8 +7,10 @@ mod equation_solver;
 mod _lib;
 mod __lib;
 use crate::_lib::{Config, DiagnosticsConfig};
+use colored::*;
 
 fn main() {
+    colored::control::set_override(true);
     /*let mut context = ParseContext::new();
     loop {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
@@ -35,7 +37,7 @@ fn main() {
         match result {
             Result::Ok(val) => println!("Result: {:?}", val),
             Result::Err(err) => {
-                println!("Error: {}", err);
+                println!("Encountered an error:\n{}", err);
             }
         }
     }

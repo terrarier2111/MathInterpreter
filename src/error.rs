@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use colored::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Span {
@@ -26,6 +27,38 @@ impl Span {
     #[inline]
     pub const fn is_none(&self) -> bool {
         self.end == usize::MAX && self.start == usize::MAX
+    }
+
+    #[inline]
+    pub fn shrink_lo(&mut self) {
+        if self.end - self.start > 1 {
+            self.start += 1;
+        } else {
+            // TODO: Error properly!
+        }
+    }
+
+    #[inline]
+    pub fn shrink_hi(&mut self) {
+        if self.end - self.start > 1 {
+            self.end -= 1;
+        } else {
+            // TODO: Error properly!
+        }
+    }
+
+    #[inline]
+    pub fn expand_lo(&mut self) { // TODO: Should this be renamed to grow_*?
+        if self.start > 0 {
+            self.start -= 1;
+        } else {
+            // TODO: Error properly!
+        }
+    }
+
+    #[inline]
+    pub fn expand_hi(&mut self) { // TODO: Should this be renamed to grow_*?
+        self.end += 1;
     }
 
 }
@@ -133,20 +166,20 @@ impl DiagnosticItem {
         match self {
             DiagnosticItem::Error(str, span) => {
                 if !span.is_none() {
-                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span).red().to_string() + "\n" + &" ".repeat(span.start) + &str.red().to_string() + "\n"
                 } else {
-                    input.to_owned() + "\n" + str
+                    input.to_owned() + "\n" + &str.red().to_string() + "\n"
                 }
             },
             DiagnosticItem::Suggestion(str, span) => {
                 if !span.is_none() {
-                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str
+                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str + "\n"
                 } else {
-                    input.to_owned() + "\n" + str
+                    input.to_owned() + "\n" + str + "\n"
                 }
             },
             DiagnosticItem::Note(str) => {
-                String::from("note: ") + str
+                String::from("note: ") + str + "\n"
             },
         }
     }

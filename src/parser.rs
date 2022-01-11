@@ -71,9 +71,6 @@ impl Parser {
                                 arg_start = start + offset + 1;
                             }
                         },
-                        Token::Dot(sp) => {
-                            return diagnostic_builder!(parse_context.input.clone(), "`.` at wrong location!", *sp);
-                        },
                         Token::Op(_, _) => {},
                         Token::Literal(..) => {},
                         Token::Number(_, _) => {},
@@ -124,12 +121,11 @@ impl Parser {
                     break;
                 },
                 Token::Comma(_) => arguments_list.push(token.0),
-                Token::Dot(_) => {}
                 Token::Op(_, _) => {}
                 Token::Literal(..) => {}
                 Token::Number(_, _) => {}
                 Token::Sign(_, _) => {}
-                Token::Other(_, _) => unreachable!(),
+                Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
                 Token::None => unreachable!(),
                 Token::VertBar(_) => {}
             }
@@ -144,7 +140,7 @@ impl Parser {
                     Token::Eq(sp) => {
                         if token.0 != eq_location {
                             if bar == NONE {
-                                return diagnostic_builder!(parse_context.input.clone(), "Found second `=` before `|`!", *sp);
+                                return diagnostic_builder!(parse_context.input.clone(), "Found second `=` before `|`", *sp);
                             }
                             rec_eq = token.0;
                             break;
@@ -152,17 +148,19 @@ impl Parser {
                     },
                     Token::VertBar(sp) => {
                         if bar != NONE {
-                            return diagnostic_builder!(parse_context.input.clone(), "Found second `|` (only one is allowed)!", *sp);
+                            return diagnostic_builder!(parse_context.input.clone(), "Found second `|`", *sp).map_err(|mut x| {
+                                x.note("only one `|` is allowed".to_string());
+                                x
+                            });
                         }
                         bar = token.0;
                     },
                     Token::Comma(_) => arguments_list.push(token.0),
-                    Token::Dot(_) => {}
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
                     Token::Number(_, _) => {}
                     Token::Sign(_, _) => {}
-                    Token::Other(_, _) => unreachable!(),
+                    Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
                     Token::None => unreachable!(),
                 }
             }
@@ -171,12 +169,12 @@ impl Parser {
         if eq_location != NONE {
             if brace_start != NONE {
                 if brace_end == NONE {
-                    return diagnostic_builder!(parse_context.input.clone(), "Invalid braces!");
+                    return diagnostic_builder_spanned!(parse_context.input.clone(), "`(` at wrong location", self.tokens.get(brace_start).unwrap().span());
                 }
                 let func_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given!");
+                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given");
                 };
                 let mut arguments = vec![];
                 for x in 0..eq_location {
@@ -188,19 +186,20 @@ impl Parser {
                     }
                 }
                 if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
-                    return diagnostic_builder!(parse_context.input.clone(), "Equal at wrong location!");
+                    // FIXME: Is this check actually required?
+                    return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location");
                 }
                 action = Action::DefineFunc(func_name, arguments);
             } else if brace_end != NONE {
-                return diagnostic_builder!(parse_context.input.clone(), "Invalid braces!");
+                return diagnostic_builder!(parse_context.input.clone(), "`)` at wrong location");
             } else {
                 let var_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given!");
+                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given");
                 };
                 if eq_location != 1 {
-                    return diagnostic_builder!(parse_context.input.clone(), "Equal at wrong location!");
+                    return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location");
                 }
                 action = Action::DefineVar(var_name);
             }
@@ -292,7 +291,7 @@ impl ParseContext {
         if !tmp.0 {
             return PResult::Ok(tmp.1);
         }
-        diagnostic_builder!(parse_ctx.input.clone(), "Not a const!")
+        diagnostic_builder!(parse_ctx.input.clone(), format!("`{}` is not a const", const_name))
     }
 
     pub fn exists_var(&self, var_name: &String) -> bool {
@@ -308,7 +307,7 @@ impl ParseContext {
     pub fn register_var(&mut self, var_name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
         let var_name = var_name.to_lowercase();
         if self.exists_fn(&var_name) {
-            return diagnostic_builder!(self.input.clone(), "There is already a variable with this name.");
+            return diagnostic_builder!(self.input.clone(), format!("There is already a variable named `{}`", var_name));
         }
         if let Some(x) = self.vars.get(var_name.as_str()) {
             if x.0 {
@@ -399,7 +398,6 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
             Token::Eq(_) => {},
             Token::VertBar(_) => {},
             Token::Comma(_) => {},
-            Token::Dot(_) => {},
             Token::Op(_, op) => {
                 while !operator_stack.is_empty() &&
                     (op.precedence() < operator_stack.last().unwrap().precedence() ||
@@ -439,9 +437,6 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
             Token::VertBar(_) => {},
             Token::Comma(sp) => {
                 return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location!", sp);
-            },
-            Token::Dot(sp) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "`.` at wrong location!", sp);
             },
             Token::Op(_, op) => {
                 match op {

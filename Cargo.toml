@@ -8,3 +8,4 @@ edition = "2018"
 [dependencies]
 rust_decimal = { version = "1.19", features = ["maths"] }
 rust_decimal_macros = "1.19"
+colored = "2.0.0"
