@@ -276,71 +276,71 @@ impl ParseContext {
         self.input = input;
     }
 
-    pub fn exists_const(&self, const_name: &String) -> bool {
-        let const_name = const_name.to_lowercase();
-        let con = self.vars.get(&*const_name);
+    pub fn exists_const(&self, name: &String) -> bool {
+        let name = name.to_lowercase();
+        let con = self.vars.get(&*name);
         if let Some(con) = con {
             return !con.0;
         }
         false
     }
 
-    pub fn lookup_const(&self, const_name: &String, parse_ctx: &ParseContext) -> PResult<Number> {
-        let const_name = const_name.to_lowercase();
-        let tmp = *self.vars.get(const_name.as_str()).unwrap();
+    pub fn lookup_const(&self, name: &String, parse_ctx: &ParseContext) -> PResult<Number> {
+        let name = name.to_lowercase();
+        let tmp = *self.vars.get(name.as_str()).unwrap();
         if !tmp.0 {
             return PResult::Ok(tmp.1);
         }
-        diagnostic_builder!(parse_ctx.input.clone(), format!("`{}` is not a const", const_name))
+        diagnostic_builder!(parse_ctx.input.clone(), format!("`{}` is not a const", name))
     }
 
-    pub fn exists_var(&self, var_name: &String) -> bool {
-        let var_name = var_name.to_lowercase();
-        self.vars.contains_key(&*var_name)
+    pub fn exists_var(&self, name: &String) -> bool {
+        let name = name.to_lowercase();
+        self.vars.contains_key(&*name)
     }
 
-    pub fn lookup_var(&self, var_name: &String) -> Number {
-        let var_name = var_name.to_lowercase();
-        (*self.vars.get(var_name.as_str()).unwrap()).1
+    pub fn lookup_var(&self, name: &String) -> Number {
+        let name = name.to_lowercase();
+        (*self.vars.get(name.as_str()).unwrap()).1
     }
 
-    pub fn register_var(&mut self, var_name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
-        let var_name = var_name.to_lowercase();
-        if self.exists_fn(&var_name) {
-            return diagnostic_builder!(self.input.clone(), format!("There is already a variable named `{}`", var_name));
+    pub fn register_var(&mut self, name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
+        let name = name.to_lowercase();
+        if self.exists_fn(&name) {
+            return diagnostic_builder!(self.input.clone(), format!("There is already a variable named `{}`", name));
         }
-        if let Some(x) = self.vars.get(var_name.as_str()) {
+        if let Some(x) = self.vars.get(name.as_str()) {
             if x.0 {
-                self.vars.insert(var_name, (true, value));
+                self.vars.insert(name, (true, value));
                 Ok(true)
             } else {
                 Ok(false)
             }
         } else {
-            self.vars.insert(var_name, (true, value));
+            self.vars.insert(name, (true, value));
             Ok(true)
         }
     }
 
     /// For internal use only!
-    pub(crate) fn register_const(&mut self, var_name: &String, value: Number) -> bool {
-        let var_name = var_name.to_lowercase();
-        if let Some(x) = self.vars.get(var_name.as_str()) {
+    pub(crate) fn register_const(&mut self, name: &String, value: Number) -> bool {
+        let name = name.to_lowercase();
+        if let Some(x) = self.vars.get(name.as_str()) {
             if x.0 {
-                self.vars.insert(var_name, (false, value));
+                self.vars.insert(name, (false, value));
                 true
             } else {
                 false
             }
         } else {
-            self.vars.insert(var_name, (false, value));
+            self.vars.insert(name, (false, value));
             true
         }
     }
 
-    pub fn exists_fn(&self, func_name: &String) -> bool {
-        let func_name = func_name.to_lowercase();
-        self.funcs.contains_key(&*func_name) || self.builtin_funcs.contains_key(&*func_name)
+    pub fn exists_fn(&self, name: &String) -> bool {
+        let name = name.to_lowercase();
+        self.funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
     }
 
     pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
@@ -353,13 +353,13 @@ impl ParseContext {
     }
 
     pub fn register_func(&mut self, func: Function) {
-        let func_name = func.name.to_lowercase();
-        self.funcs.insert(func_name, func);
+        let name = func.name.to_lowercase();
+        self.funcs.insert(name, func);
     }
 
-    fn exists_builtin_func(&self, func_name: &String) -> bool {
-        let func_name = func_name.to_lowercase();
-        self.builtin_funcs.contains_key(&*func_name)
+    fn exists_builtin_func(&self, name: &String) -> bool {
+        let name = name.to_lowercase();
+        self.builtin_funcs.contains_key(&*name)
     }
 
     fn call_builtin_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
@@ -371,8 +371,8 @@ impl ParseContext {
     }
 
     fn register_builtin_func(&mut self, func: BuiltInFunction) {
-        let func_name = func.name.to_lowercase();
-        self.builtin_funcs.insert(func_name, func);
+        let name = func.name.to_lowercase();
+        self.builtin_funcs.insert(name, func);
     }
 
 }

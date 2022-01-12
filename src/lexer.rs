@@ -22,7 +22,6 @@ impl Lexer {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for c in input.chars().enumerate() {
-            println!("{:?}", token_type);
             let x = c.1;
             if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
                 if let Some(token) = token_type.take() {
@@ -102,8 +101,8 @@ impl Lexer {
                             return diagnostic_builder!(input.clone(), format!("`{}` at wrong location", x), c.0);
                         }
                         match &tokens.last().unwrap() {
-                            Token::Op(sp, _) | Token::OpenParen(sp) | Token::Eq(sp) => {
-                                Some(Token::Sign(*sp, sign.0)) // FIXME: Is "sp" really correct here or should it rather be "c.0"?
+                            Token::Op(_, _) | Token::OpenParen(_) | Token::Eq(_) => {
+                                Some(Token::Sign(c.0, sign.0))
                             }
                             _ => {
                                 Some(Token::Op(c.0, sign.1))
@@ -124,17 +123,14 @@ impl Lexer {
                                 let mut num = String::from(x);
                                 let mut span_start = c.0;
                                 if !tokens.is_empty() {
-                                    let mut has_sign = false;
                                     if let Token::Sign(idx, sign) = tokens.last().unwrap() {
+                                        let sign = *sign;
                                         span_start = *idx;
-                                        has_sign = true;
+                                        tokens.pop();
                                         match sign {
-                                            SignKind::Plus => {}
+                                            SignKind::Plus => {},
                                             SignKind::Minus => num.insert(0, '-'),
                                         }
-                                    }
-                                    if has_sign {
-                                        tokens.pop();
                                     }
                                 }
                                 token_type = Some(Token::Number(Span::from_idx(span_start), num));
@@ -157,9 +153,9 @@ impl Lexer {
                         match &mut token_type {
                             None => {
                                 // This handles the case in which the last token **is not** part of the current token's literal
-
                                 let sign = if !tokens.is_empty() {
                                     if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
+                                        tokens.pop();
                                         (idx, Some(kind))
                                     } else {
                                         (c.0, None)
