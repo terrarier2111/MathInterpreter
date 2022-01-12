@@ -19,9 +19,12 @@ impl Span {
         }
     }
 
-    #[inline]
     pub const fn from_idx(idx: usize) -> Self {
-        Self::new(idx, idx + 1)
+        if idx == usize::MAX {
+            Self::NONE
+        } else {
+            Self::new(idx, idx + 1)
+        }
     }
 
     #[inline]
@@ -148,7 +151,6 @@ impl Display for DiagnosticBuilder {
 }
 
 impl Error for DiagnosticBuilder {
-
 }
 
 #[derive(Debug)]

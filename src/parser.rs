@@ -38,7 +38,7 @@ impl Parser {
             }
         }
         for token in replaced_tokens {
-            self.tokens[token.0] = Token::Number(Span::new(0, 0), token.1.to_string());
+            self.tokens[token.0] = Token::Number(Span::NONE, token.1.to_string());
         }
         for pr in possibly_replaced_funcs {
             let start = pr.0;
@@ -60,7 +60,7 @@ impl Parser {
                             }
                         },
                         Token::Eq(sp) => {
-                            return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location!", *sp);
+                            return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location", *sp);
                         },
                         Token::VertBar(_) => {
                             todo!()
@@ -80,7 +80,7 @@ impl Parser {
                     }
                 }
             } else {
-                return diagnostic_builder!(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call!");
+                return diagnostic_builder!(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call");
             }
             let mut finished_args = vec![];
             let end = args.last().unwrap().1 + 1;
@@ -104,7 +104,7 @@ impl Parser {
                 self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen(pr.0));
             }
         }
-        PResult::Ok(())
+        Ok(())
     }
 
     pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
@@ -214,12 +214,12 @@ impl Parser {
                 let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
                 let result = eval_rpn(rpn, parse_context)?;
                 parse_context.register_var(&name, result)?;
-                PResult::Ok(Some(result))
+                Ok(Some(result))
             }
             Action::DefineFunc(name, args) => {
                 let func = Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context)?;
                 parse_context.register_func(func);
-                PResult::Ok(None)
+                Ok(None)
             },
             Action::Eval => {
                 // Perform variable and function lookup and evaluation
@@ -228,7 +228,7 @@ impl Parser {
                 // Perform the evaluation of the input statement
                 let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
                 let result = eval_rpn(rpn, parse_context)?;
-                PResult::Ok(Some(result))
+                Ok(Some(result))
             },
             Action::DefineRecFunc(_, _, _) => {
                 todo!()
@@ -289,7 +289,7 @@ impl ParseContext {
         let name = name.to_lowercase();
         let tmp = *self.vars.get(name.as_str()).unwrap();
         if !tmp.0 {
-            return PResult::Ok(tmp.1);
+            return Ok(tmp.1);
         }
         diagnostic_builder!(parse_ctx.input.clone(), format!("`{}` is not a const", name))
     }
@@ -389,7 +389,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                         if op == OpKind::OpenParen {
                             break;
                         }
-                        output.push(Token::Op(0, op));
+                        output.push(Token::Op(usize::MAX, op));
                     } else {
                         return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Invalid parens!", token.span());
                     }
@@ -402,27 +402,27 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                 while !operator_stack.is_empty() &&
                     (op.precedence() < operator_stack.last().unwrap().precedence() ||
                         (op.precedence() == operator_stack.last().unwrap().precedence() && op.associativity() == Associativity::Left)) {
-                    output.push(Token::Op(0, operator_stack.pop().unwrap()));
+                    output.push(Token::Op(usize::MAX, operator_stack.pop().unwrap()));
                 }
                 operator_stack.push(op);
             },
             Token::Literal(sp, _, _) => {
-                return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Failed to evaluate literal correctly!", sp);
+                return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Failed to evaluate literal correctly", sp);
             },
             Token::Number(_, _) => output.push(token),
             Token::Sign(sp, _) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "There was no sign expected!", sp);
+                return diagnostic_builder!(parse_ctx.input.clone(), "There was no sign expected", sp);
             },
             Token::Other(sp, _) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "Other is not allowed here!", sp);
+                return diagnostic_builder!(parse_ctx.input.clone(), "Other is not allowed here", sp);
             },
             Token::None => unreachable!(),
         }
     }
     for operator in operator_stack.into_iter().rev() {
-        output.push(Token::Op(0, operator));
+        output.push(Token::Op(usize::MAX, operator));
     }
-    PResult::Ok(output)
+    Ok(output)
 }
 
 pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Number> {
@@ -432,11 +432,11 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
             Token::OpenParen(_) => unreachable!(),
             Token::ClosedParen(_) => unreachable!(),
             Token::Eq(sp) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "`=` at wrong location!", sp);
+                return diagnostic_builder!(parse_ctx.input.clone(), "`=` at wrong location", sp);
             },
             Token::VertBar(_) => {},
             Token::Comma(sp) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location!", sp);
+                return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location", sp);
             },
             Token::Op(_, op) => {
                 match op {
@@ -474,7 +474,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 }
             },
             Token::Literal(sp, lit, _) => {
-                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("Failed to evaluate literal `{}` correctly!", lit), sp);
+                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("Failed to evaluate literal `{}` correctly", lit), sp);
             },
             Token::Number(_, num) => num_stack.push(num.parse::<Number>().unwrap()),
             Token::Sign(_, _) => unreachable!(),
@@ -483,9 +483,9 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
         }
     }
     if num_stack.len() != 1 {
-        return diagnostic_builder!(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation!");
+        return diagnostic_builder!(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation");
     }
-    PResult::Ok(num_stack.pop().unwrap())
+    Ok(num_stack.pop().unwrap())
 }
 
 #[derive(Debug, Clone)]
@@ -551,17 +551,17 @@ impl Function {
             if let Token::Literal(span, str, _) = token.1 {
                 if !arg_names.contains(str) {
                     if !parse_ctx.exists_const(str) {
-                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Not an argument or const!".to_string(), *span);
+                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Not an argument or const", *span);
                     }
                     replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
                 }
             }
         }
         for x in replace_consts {
-            tokens[x.0] = Token::Number(Span::new(0, 0), x.1?.to_string());
+            tokens[x.0] = Token::Number(Span::NONE, x.1?.to_string());
         }
 
-        PResult::Ok(Self {
+        Ok(Self {
             name,
             args: finished_args,
             tokens,
@@ -643,12 +643,12 @@ impl FunctionArg {
         let added_tokens = value.len() + 1;
         for pos in self.token_positions.iter() {
             let pos = pos + offset;
-            tokens[pos] = Token::OpenParen(0);
+            tokens[pos] = Token::OpenParen(usize::MAX);
             let end = pos + 1 + value.len().clone();
             for token in value.into_iter().enumerate() {
                 tokens.insert(pos + 1 + token.0, token.1.clone());
             }
-            tokens.insert(end, Token::ClosedParen(0));
+            tokens.insert(end, Token::ClosedParen(usize::MAX));
         }
         added_tokens
     }
