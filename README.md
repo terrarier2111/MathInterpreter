@@ -14,10 +14,10 @@ Features are:
 ✅ | Defining and using functions\
 ✅ | 96 bit decimal accuracy\
 ✅ | Default functions/consts\
+✅ | Inferred multiplication i.e: `4 (3 + 2)` = `20`\
 🛠️ | Recursive functions\
 🛠️ | Proper error propagation and providing suggestions\
 🛠️ | Validation of input\
 🛠️ | Api\
-❌ | Inferred multiplication i.e: `4 (3 + 2)` = `20`\
 ❌ | Equation solving/simplification\
 ❌ | Multithreading support for expensive calculations
