@@ -1,10 +1,9 @@
-use std::rc::Rc;
-use rust_decimal::Decimal;
 use crate::error::Span;
+use rust_decimal::Decimal;
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub enum Token {
-
     OpenParen(usize),
     ClosedParen(usize),
     Eq(usize),
@@ -16,11 +15,9 @@ pub enum Token {
     Sign(usize, SignKind),
     Other(usize, char),
     None,
-
 }
 
 impl Token {
-
     pub fn kind(&self) -> TokenKind {
         match self {
             Token::OpenParen(..) => TokenKind::OpenParen,
@@ -68,12 +65,10 @@ impl Token {
             Token::None => unreachable!(),
         }
     }
-
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
-
     OpenParen,
     ClosedParen,
     Eq,
@@ -84,58 +79,39 @@ pub enum TokenKind {
     Number,
     Sign,
     Other,
-
 }
 
 impl TokenKind {
-
     pub fn to_string(&self) -> String {
         format!("{:?}", self)
     }
-
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ImplicitlyMultiply {
-
     Always,
     Left,
     Right,
     Never,
-
 }
 
 impl ImplicitlyMultiply {
-
     pub fn can_multiply_with_left(&self, left: ImplicitlyMultiply) -> bool {
         match self {
-            ImplicitlyMultiply::Always => matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Always => {
+                matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always)
+            }
             ImplicitlyMultiply::Left => false,
-            ImplicitlyMultiply::Right => matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Right => {
+                matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always)
+            }
             ImplicitlyMultiply::Never => false,
         }
     }
-
-    pub fn can_multiply_with_right(&self, right: ImplicitlyMultiply) -> bool {
-        match self {
-            ImplicitlyMultiply::Always => matches!(right, ImplicitlyMultiply::Right | ImplicitlyMultiply::Always),
-            ImplicitlyMultiply::Left => matches!(right, ImplicitlyMultiply::Right | ImplicitlyMultiply::Always),
-            ImplicitlyMultiply::Right => false,
-            ImplicitlyMultiply::Never => false,
-        }
-    }
-
-}
-
-pub type InternedToken<'ctx> = Rc<Interned<'ctx, Token>>;
-
-pub struct Interned<'ctx, T: Sized> {
-    interned: &'ctx mut T,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OpKind {
-
     Plus,
     Minus,
     Divide,
@@ -144,11 +120,9 @@ pub enum OpKind {
     Pow, // FIXME: Is this a good name for "^"?
 
     OpenParen, // This is only needed for shunting yard evaluation.
-
 }
 
 impl OpKind {
-
     pub fn precedence(&self) -> u8 {
         match self {
             OpKind::Plus => 2,
@@ -172,26 +146,21 @@ impl OpKind {
             OpKind::OpenParen => Associativity::Right, // This shouldn't be relevant!
         }
     }
-
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum SignKind {
-
     Plus,
     Minus,
-
 }
 
 impl SignKind {
-
     pub fn to_raw(&self) -> char {
         match self {
             SignKind::Plus => '+',
             SignKind::Minus => '-',
         }
     }
-
 }
 
 pub type Number = Decimal;
@@ -200,5 +169,4 @@ pub type Number = Decimal;
 pub enum Associativity {
     Left,
     Right,
-
 }

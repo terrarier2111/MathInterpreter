@@ -1,6 +1,6 @@
+use colored::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use colored::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Span {
@@ -9,14 +9,10 @@ pub struct Span {
 }
 
 impl Span {
-
     pub const NONE: Span = Span::new(usize::MAX, usize::MAX);
 
     pub const fn new(start: usize, end: usize) -> Self {
-        Self {
-            start,
-            end,
-        }
+        Self { start, end }
     }
 
     pub const fn from_idx(idx: usize) -> Self {
@@ -51,7 +47,8 @@ impl Span {
     }
 
     #[inline]
-    pub fn expand_lo(&mut self) { // TODO: Should this be renamed to grow_*?
+    pub fn expand_lo(&mut self) {
+        // TODO: Should this be renamed to grow_*?
         if self.start > 0 {
             self.start -= 1;
         } else {
@@ -60,10 +57,10 @@ impl Span {
     }
 
     #[inline]
-    pub fn expand_hi(&mut self) { // TODO: Should this be renamed to grow_*?
+    pub fn expand_hi(&mut self) {
+        // TODO: Should this be renamed to grow_*?
         self.end += 1;
     }
-
 }
 
 #[derive(Debug)]
@@ -73,7 +70,6 @@ pub struct DiagnosticBuilder {
 }
 
 impl DiagnosticBuilder {
-    
     pub fn new(input: String) -> Self {
         Self {
             input,
@@ -84,7 +80,7 @@ impl DiagnosticBuilder {
     pub(crate) fn from_input_and_err_with_span(input: String, error: String, span: Span) -> Self {
         let mut ret = Self {
             input,
-            items: vec![]
+            items: vec![],
         };
         ret.error_with_span(error, span);
         ret
@@ -93,7 +89,7 @@ impl DiagnosticBuilder {
     pub(crate) fn from_input_and_err(input: String, error: String) -> Self {
         let mut ret = Self {
             input,
-            items: vec![]
+            items: vec![],
         };
         ret.error(error);
         ret
@@ -115,7 +111,8 @@ impl DiagnosticBuilder {
     }
 
     pub fn suggestion_with_span(&mut self, suggestion: String, span: Span) -> &mut Self {
-        self.items.push(DiagnosticItem::Suggestion(suggestion, span));
+        self.items
+            .push(DiagnosticItem::Suggestion(suggestion, span));
         self
     }
 
@@ -137,7 +134,6 @@ impl DiagnosticBuilder {
         }
         result
     }
-
 }
 
 impl Display for DiagnosticBuilder {
@@ -150,66 +146,88 @@ impl Display for DiagnosticBuilder {
     }
 }
 
-impl Error for DiagnosticBuilder {
-}
+impl Error for DiagnosticBuilder {}
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticItem {
-
     Error(String, Span),
     Suggestion(String, Span),
     Note(String),
-
 }
 
 impl DiagnosticItem {
-
     pub fn to_string(&self, input: &String) -> String {
         match self {
             DiagnosticItem::Error(str, span) => {
                 if !span.is_none() {
-                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span).red().to_string() + "\n" + &" ".repeat(span.start) + &str.red().to_string() + "\n"
+                    input.to_owned()
+                        + "\n"
+                        + &DiagnosticBuilder::build_span_string(span).red().to_string()
+                        + "\n"
+                        + &" ".repeat(span.start)
+                        + &str.red().to_string()
+                        + "\n"
                 } else {
                     input.to_owned() + "\n" + &str.red().to_string() + "\n"
                 }
-            },
+            }
             DiagnosticItem::Suggestion(str, span) => {
                 if !span.is_none() {
-                    input.to_owned() + "\n" + &DiagnosticBuilder::build_span_string(span) + "\n" + &" ".repeat(span.start) + str + "\n"
+                    input.to_owned()
+                        + "\n"
+                        + &DiagnosticBuilder::build_span_string(span)
+                        + "\n"
+                        + &" ".repeat(span.start)
+                        + str
+                        + "\n"
                 } else {
                     input.to_owned() + "\n" + str + "\n"
                 }
-            },
-            DiagnosticItem::Note(str) => {
-                String::from("note: ") + str + "\n"
-            },
+            }
+            DiagnosticItem::Note(str) => String::from("note: ") + str + "\n",
         }
     }
-
 }
 
 #[macro_export]
 macro_rules! diagnostic_builder {
     ($input:expr, $error:literal) => {
-        Err(DiagnosticBuilder::from_input_and_err($input, $error.to_string()))
+        Err(DiagnosticBuilder::from_input_and_err(
+            $input,
+            $error.to_string(),
+        ))
     };
     ($input:expr, $error:expr) => {
         Err(DiagnosticBuilder::from_input_and_err($input, $error))
     };
     ($input:expr, $error:literal, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error.to_string(), Span::from_idx($sp)))
+        Err(DiagnosticBuilder::from_input_and_err_with_span(
+            $input,
+            $error.to_string(),
+            Span::from_idx($sp),
+        ))
     };
     ($input:expr, $error:expr, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error, Span::from_idx($sp)))
+        Err(DiagnosticBuilder::from_input_and_err_with_span(
+            $input,
+            $error,
+            Span::from_idx($sp),
+        ))
     };
 }
 
 #[macro_export]
 macro_rules! diagnostic_builder_spanned {
     ($input:expr, $error:literal, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error.to_string(), $sp))
+        Err(DiagnosticBuilder::from_input_and_err_with_span(
+            $input,
+            $error.to_string(),
+            $sp,
+        ))
     };
     ($input:expr, $error:expr, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span($input, $error, $sp))
+        Err(DiagnosticBuilder::from_input_and_err_with_span(
+            $input, $error, $sp,
+        ))
     };
 }

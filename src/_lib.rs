@@ -11,18 +11,14 @@ pub struct Config {
 }
 
 impl Config {
-
     pub fn new(diagnostics: DiagnosticsConfig) -> Self {
-        Self {
-            diagnostics
-        }
+        Self { diagnostics }
     }
-
 }
 
 #[derive(Default)]
 pub struct DiagnosticsConfig {
-    color: bool, // FIXME: Currently unsupported
+    color: bool,                              // FIXME: Currently unsupported
     printing_order: DiagnosticsPrintingOrder, // FIXME: Currently unsupported
 }
 
@@ -42,6 +38,6 @@ pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>
     __lib::eval(input, eval_ctx)
 }
 
-pub fn new_eval_ctx(config: Config)  -> EvalContext {
+pub fn new_eval_ctx(config: Config) -> EvalContext {
     EvalContext::new(config)
 }

@@ -1,24 +1,23 @@
-use std::collections::HashMap;
-use std::ops::Neg;
-use rust_decimal::MathematicalOps;
-use rust_decimal::prelude::ToPrimitive;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{Associativity, ImplicitlyMultiply, Number, OpKind, Token, TokenKind};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::MathematicalOps;
+use std::collections::HashMap;
+use std::ops::Neg;
 #[macro_use]
 use crate::parser::macros as mac;
-use crate::{diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const};
+use crate::{
+    diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const,
+};
 
 const NONE: usize = usize::MAX;
 
 pub(crate) struct Parser {
-
     tokens: Vec<Token>,
     action: Action,
-
 }
 
 impl Parser {
-
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
@@ -28,7 +27,7 @@ impl Parser {
 
     fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) -> PResult<()> {
         let mut replaced_tokens = vec![];
-        let mut possibly_replaced_funcs =  vec![];
+        let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
             if let Token::Literal(_, content, neg) = token.1 {
                 if parse_context.exists_var(content) {
@@ -65,24 +64,28 @@ impl Parser {
                                 args.push((arg_start, start + offset));
                                 break;
                             }
-                        },
+                        }
                         Token::Eq(sp) => {
-                            return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location", *sp);
-                        },
+                            return diagnostic_builder!(
+                                parse_context.input.clone(),
+                                "`=` at wrong location",
+                                *sp
+                            );
+                        }
                         Token::VertBar(_) => {
                             todo!()
-                        },
+                        }
                         Token::Comma(_) => {
                             if opened_parens == 1 {
                                 args.push((arg_start, start + offset));
                                 arg_start = start + offset + 1;
                             }
-                        },
-                        Token::Op(_, _) => {},
-                        Token::Literal(..) => {},
-                        Token::Number(_, _) => {},
-                        Token::Sign(_, _) => {},
-                        Token::Other(_, _) => {},
+                        }
+                        Token::Op(_, _) => {}
+                        Token::Literal(..) => {}
+                        Token::Number(_, _) => {}
+                        Token::Sign(_, _) => {}
+                        Token::Other(_, _) => {}
                         Token::None => unreachable!(),
                     }
                 }
@@ -129,13 +132,19 @@ impl Parser {
                     Token::ClosedParen(_) => brace_end = token.0,
                     Token::Eq(_) => {
                         eq_location = token.0; // TODO: Detect second Eq and error!
-                    },
+                    }
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
                     Token::Number(_, _) => {}
                     Token::Sign(_, _) => {}
-                    Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
+                    Token::Other(sp, raw) => {
+                        return diagnostic_builder!(
+                            parse_context.input.clone(),
+                            format!("Unexpected token `{}`", raw),
+                            *sp
+                        )
+                    }
                     Token::None => unreachable!(),
                     Token::VertBar(_) => {}
                 }
@@ -147,7 +156,8 @@ impl Parser {
             last_token_mult = curr_token_mult;
         }
         for x in multiplications.iter().enumerate() {
-            self.tokens.insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
+            self.tokens
+                .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
         }
         let mut bar = NONE;
         let mut rec_eq = NONE;
@@ -159,27 +169,42 @@ impl Parser {
                     Token::Eq(sp) => {
                         if token.0 != eq_location {
                             if bar == NONE {
-                                return diagnostic_builder!(parse_context.input.clone(), "Found second `=` before `|`", *sp);
+                                return diagnostic_builder!(
+                                    parse_context.input.clone(),
+                                    "Found second `=` before `|`",
+                                    *sp
+                                );
                             }
                             rec_eq = token.0;
                             break;
                         }
-                    },
+                    }
                     Token::VertBar(sp) => {
                         if bar != NONE {
-                            return diagnostic_builder!(parse_context.input.clone(), "Found second `|`", *sp).map_err(|mut x| {
+                            return diagnostic_builder!(
+                                parse_context.input.clone(),
+                                "Found second `|`",
+                                *sp
+                            )
+                            .map_err(|mut x| {
                                 x.note("only one `|` is allowed".to_string());
                                 x
                             });
                         }
                         bar = token.0;
-                    },
+                    }
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
                     Token::Number(_, _) => {}
                     Token::Sign(_, _) => {}
-                    Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
+                    Token::Other(sp, raw) => {
+                        return diagnostic_builder!(
+                            parse_context.input.clone(),
+                            format!("Unexpected token `{}`", raw),
+                            *sp
+                        )
+                    }
                     Token::None => unreachable!(),
                 }
             }
@@ -188,12 +213,19 @@ impl Parser {
         if eq_location != NONE {
             if brace_start != NONE {
                 if brace_end == NONE {
-                    return diagnostic_builder_spanned!(parse_context.input.clone(), "`(` at wrong location", self.tokens.get(brace_start).unwrap().span());
+                    return diagnostic_builder_spanned!(
+                        parse_context.input.clone(),
+                        "`(` at wrong location",
+                        self.tokens.get(brace_start).unwrap().span()
+                    );
                 }
                 let func_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given");
+                    return diagnostic_builder!(
+                        parse_context.input.clone(),
+                        "No function name was given"
+                    );
                 };
                 let mut arguments = vec![];
                 for x in 0..eq_location {
@@ -204,9 +236,15 @@ impl Parser {
                         }
                     }
                 }
-                if eq_location != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize) { // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
+                if eq_location
+                    != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize)
+                {
+                    // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
                     // FIXME: Is this check actually required?
-                    return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location");
+                    return diagnostic_builder!(
+                        parse_context.input.clone(),
+                        "`=` at wrong location"
+                    );
                 }
                 action = Action::DefineFunc(func_name, arguments);
             } else if brace_end != NONE {
@@ -215,10 +253,16 @@ impl Parser {
                 let var_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
                     x
                 } else {
-                    return diagnostic_builder!(parse_context.input.clone(), "No function name was given");
+                    return diagnostic_builder!(
+                        parse_context.input.clone(),
+                        "No function name was given"
+                    );
                 };
                 if eq_location != 1 {
-                    return diagnostic_builder!(parse_context.input.clone(), "`=` at wrong location");
+                    return diagnostic_builder!(
+                        parse_context.input.clone(),
+                        "`=` at wrong location"
+                    );
                 }
                 action = Action::DefineVar(var_name);
             }
@@ -236,10 +280,15 @@ impl Parser {
                 Ok(Some(result))
             }
             Action::DefineFunc(name, args) => {
-                let func = Function::new(name.clone(), args.clone(), self.tokens.clone(), parse_context)?;
+                let func = Function::new(
+                    name.clone(),
+                    args.clone(),
+                    self.tokens.clone(),
+                    parse_context,
+                )?;
                 parse_context.register_func(func);
                 Ok(None)
-            },
+            }
             Action::Eval => {
                 // Perform variable and function lookup and evaluation
                 self.handle_vars_and_fn_calls(parse_context)?;
@@ -248,32 +297,28 @@ impl Parser {
                 let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
                 let result = eval_rpn(rpn, parse_context)?;
                 Ok(Some(result))
-            },
+            }
             Action::DefineRecFunc(_, _, _) => {
                 todo!()
-            },
+            }
         }
     }
-
 }
 
 pub(crate) struct ParseContext {
-
     input: String,
     vars: HashMap<String, (bool, Number)>,
     funcs: HashMap<String, Function>,
     builtin_funcs: HashMap<String, BuiltInFunction>,
-
 }
 
 impl ParseContext {
-
     pub fn new() -> Self {
         let mut ret = Self {
             input: String::new(),
             vars: Default::default(),
             funcs: Default::default(),
-            builtin_funcs: Default::default()
+            builtin_funcs: Default::default(),
         };
         register_const!(ret, "pi", Number::PI);
         register_const!(ret, "e", Number::E);
@@ -310,7 +355,10 @@ impl ParseContext {
         if !tmp.0 {
             return Ok(tmp.1);
         }
-        diagnostic_builder!(parse_ctx.input.clone(), format!("`{}` is not a const", name))
+        diagnostic_builder!(
+            parse_ctx.input.clone(),
+            format!("`{}` is not a const", name)
+        )
     }
 
     pub fn exists_var(&self, name: &String) -> bool {
@@ -323,10 +371,17 @@ impl ParseContext {
         (*self.vars.get(name.as_str()).unwrap()).1
     }
 
-    pub fn register_var(&mut self, name: &String, value: Number) -> Result<bool, DiagnosticBuilder> {
+    pub fn register_var(
+        &mut self,
+        name: &String,
+        value: Number,
+    ) -> Result<bool, DiagnosticBuilder> {
         let name = name.to_lowercase();
         if self.exists_fn(&name) {
-            return diagnostic_builder!(self.input.clone(), format!("There is already a variable named `{}`", name));
+            return diagnostic_builder!(
+                self.input.clone(),
+                format!("There is already a variable named `{}`", name)
+            );
         }
         if let Some(x) = self.vars.get(name.as_str()) {
             if x.0 {
@@ -384,7 +439,10 @@ impl ParseContext {
     fn call_builtin_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
-            None => diagnostic_builder!(self.input.clone(), format!("There is no function such as `{}`.", name)),
+            None => diagnostic_builder!(
+                self.input.clone(),
+                format!("There is no function such as `{}`.", name)
+            ),
             Some(func) => func.build_tokens(args, self),
         }
     }
@@ -393,7 +451,6 @@ impl ParseContext {
         let name = func.name.to_lowercase();
         self.builtin_funcs.insert(name, func);
     }
-
 }
 
 pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
@@ -402,39 +459,55 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
     for token in input {
         match token {
             Token::OpenParen(_) => operator_stack.push(OpKind::OpenParen),
-            Token::ClosedParen(_) => {
-                loop {
-                    if let Some(op) = operator_stack.pop() {
-                        if op == OpKind::OpenParen {
-                            break;
-                        }
-                        output.push(Token::Op(usize::MAX, op));
-                    } else {
-                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Invalid parens!", token.span());
+            Token::ClosedParen(_) => loop {
+                if let Some(op) = operator_stack.pop() {
+                    if op == OpKind::OpenParen {
+                        break;
                     }
+                    output.push(Token::Op(usize::MAX, op));
+                } else {
+                    return diagnostic_builder_spanned!(
+                        parse_ctx.input.clone(),
+                        "Invalid parens!",
+                        token.span()
+                    );
                 }
             },
-            Token::Eq(_) => {},
-            Token::VertBar(_) => {},
-            Token::Comma(_) => {},
+            Token::Eq(_) => {}
+            Token::VertBar(_) => {}
+            Token::Comma(_) => {}
             Token::Op(_, op) => {
-                while !operator_stack.is_empty() &&
-                    (op.precedence() < operator_stack.last().unwrap().precedence() ||
-                        (op.precedence() == operator_stack.last().unwrap().precedence() && op.associativity() == Associativity::Left)) {
+                while !operator_stack.is_empty()
+                    && (op.precedence() < operator_stack.last().unwrap().precedence()
+                        || (op.precedence() == operator_stack.last().unwrap().precedence()
+                            && op.associativity() == Associativity::Left))
+                {
                     output.push(Token::Op(usize::MAX, operator_stack.pop().unwrap()));
                 }
                 operator_stack.push(op);
-            },
+            }
             Token::Literal(sp, _, _) => {
-                return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Failed to evaluate literal correctly", sp);
-            },
+                return diagnostic_builder_spanned!(
+                    parse_ctx.input.clone(),
+                    "Failed to evaluate literal correctly",
+                    sp
+                );
+            }
             Token::Number(_, _) => output.push(token),
             Token::Sign(sp, _) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "There was no sign expected", sp);
-            },
+                return diagnostic_builder!(
+                    parse_ctx.input.clone(),
+                    "There was no sign expected",
+                    sp
+                );
+            }
             Token::Other(sp, _) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "Other is not allowed here", sp);
-            },
+                return diagnostic_builder!(
+                    parse_ctx.input.clone(),
+                    "Other is not allowed here",
+                    sp
+                );
+            }
             Token::None => unreachable!(),
         }
     }
@@ -452,49 +525,51 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
             Token::ClosedParen(_) => unreachable!(),
             Token::Eq(sp) => {
                 return diagnostic_builder!(parse_ctx.input.clone(), "`=` at wrong location", sp);
-            },
-            Token::VertBar(_) => {},
+            }
+            Token::VertBar(_) => {}
             Token::Comma(sp) => {
                 return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location", sp);
-            },
-            Token::Op(_, op) => {
-                match op {
-                    OpKind::Plus => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1 + num_2)
-                    },
-                    OpKind::Minus => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1 - num_2)
-                    },
-                    OpKind::Divide => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1 / num_2)
-                    },
-                    OpKind::Multiply => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1 * num_2)
-                    },
-                    OpKind::Modulo => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1 % num_2)
-                    },
-                    OpKind::Pow => {
-                        let num_2 = num_stack.pop().unwrap();
-                        let num_1 = num_stack.pop().unwrap();
-                        num_stack.push(num_1.powd(num_2))
-                    },
-                    OpKind::OpenParen => unreachable!(),
+            }
+            Token::Op(_, op) => match op {
+                OpKind::Plus => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1 + num_2)
                 }
+                OpKind::Minus => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1 - num_2)
+                }
+                OpKind::Divide => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1 / num_2)
+                }
+                OpKind::Multiply => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1 * num_2)
+                }
+                OpKind::Modulo => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1 % num_2)
+                }
+                OpKind::Pow => {
+                    let num_2 = num_stack.pop().unwrap();
+                    let num_1 = num_stack.pop().unwrap();
+                    num_stack.push(num_1.powd(num_2))
+                }
+                OpKind::OpenParen => unreachable!(),
             },
             Token::Literal(sp, lit, _) => {
-                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("Failed to evaluate literal `{}` correctly", lit), sp);
-            },
+                return diagnostic_builder_spanned!(
+                    parse_ctx.input.clone(),
+                    format!("Failed to evaluate literal `{}` correctly", lit),
+                    sp
+                );
+            }
             Token::Number(_, num) => num_stack.push(num.parse::<Number>().unwrap()),
             Token::Sign(_, _) => unreachable!(),
             Token::Other(_, _) => unreachable!(),
@@ -502,23 +577,23 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
         }
     }
     if num_stack.len() != 1 {
-        return diagnostic_builder!(parse_ctx.input.clone(), "There is more than 1 number left after finishing evaluation");
+        return diagnostic_builder!(
+            parse_ctx.input.clone(),
+            "There is more than 1 number left after finishing evaluation"
+        );
     }
     Ok(num_stack.pop().unwrap())
 }
 
 #[derive(Debug, Clone)]
 pub enum Action {
-
-    DefineVar(String), // var name
-    DefineFunc(String, Vec<String>), // function name, function arguments
+    DefineVar(String),                                  // var name
+    DefineFunc(String, Vec<String>),                    // function name, function arguments
     DefineRecFunc(String, Vec<String>, (usize, usize)), // function name, function arguments, (recursive min idx, recursive min val)
     Eval,
-
 }
 
 impl Action {
-
     pub fn kind(&self) -> ActionKind {
         match self {
             Action::DefineVar(_) => ActionKind::DefineVar,
@@ -527,30 +602,29 @@ impl Action {
             Action::DefineRecFunc(_, _, _) => ActionKind::DefineRecFunc,
         }
     }
-
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum ActionKind {
-
     DefineVar,
     DefineFunc,
     DefineRecFunc,
     Eval,
-
 }
 
 pub(crate) struct Function {
-
     name: String,
     args: Vec<FunctionArg>,
     tokens: Vec<Token>,
-
 }
 
 impl Function {
-
-    pub fn new(name: String, arg_names: Vec<String>, mut tokens: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Self> {
+    pub fn new(
+        name: String,
+        arg_names: Vec<String>,
+        mut tokens: Vec<Token>,
+        parse_ctx: &ParseContext,
+    ) -> PResult<Self> {
         // Detect arguments
         let mut finished_args = vec![];
         for arg in arg_names.iter() {
@@ -570,7 +644,11 @@ impl Function {
             if let Token::Literal(span, str, _) = token.1 {
                 if !arg_names.contains(str) {
                     if !parse_ctx.exists_const(str) {
-                        return diagnostic_builder_spanned!(parse_ctx.input.clone(), "Not an argument or const", *span);
+                        return diagnostic_builder_spanned!(
+                            parse_ctx.input.clone(),
+                            "Not an argument or const",
+                            *span
+                        );
                     }
                     replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
                 }
@@ -587,14 +665,26 @@ impl Function {
         })
     }
 
-    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
+    pub fn build_tokens(
+        &self,
+        arg_values: Vec<Vec<Token>>,
+        parse_ctx: &ParseContext,
+    ) -> PResult<Vec<Token>> {
         if self.args.len() != arg_values.len() {
             let args_txt = if self.args.len() == 1 {
                 "argument"
             } else {
                 "arguments"
             };
-            return diagnostic_builder!(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.args.len(), args_txt, arg_values.len()));
+            return diagnostic_builder!(
+                parse_ctx.input.clone(),
+                format!(
+                    "Expected {} {}, got {}",
+                    self.args.len(),
+                    args_txt,
+                    arg_values.len()
+                )
+            );
         }
         let mut ret = self.tokens.clone();
         let mut offset = 0;
@@ -603,35 +693,43 @@ impl Function {
         }
         Ok(ret)
     }
-
 }
 
 pub(crate) struct BuiltInFunction {
-
     name: String,
     arg_count: usize,
     inner: Box<dyn Fn(Vec<Number>) -> Number>,
-
 }
 
 impl BuiltInFunction {
-
     pub fn new(name: String, arg_count: usize, inner: Box<dyn Fn(Vec<Number>) -> Number>) -> Self {
         Self {
             name,
             arg_count,
-            inner
+            inner,
         }
     }
 
-    pub fn build_tokens(&self, arg_values: Vec<Vec<Token>>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
+    pub fn build_tokens(
+        &self,
+        arg_values: Vec<Vec<Token>>,
+        parse_ctx: &ParseContext,
+    ) -> PResult<Vec<Token>> {
         if self.arg_count != arg_values.len() {
             let args_txt = if self.arg_count == 1 {
                 "argument"
             } else {
                 "arguments"
             };
-            return diagnostic_builder!(parse_ctx.input.clone(), format!("Expected {} {}, got {}", self.arg_count, args_txt, arg_values.len()));
+            return diagnostic_builder!(
+                parse_ctx.input.clone(),
+                format!(
+                    "Expected {} {}, got {}",
+                    self.arg_count,
+                    args_txt,
+                    arg_values.len()
+                )
+            );
         }
         let mut args = vec![];
         for arg in arg_values.iter() {
@@ -639,26 +737,28 @@ impl BuiltInFunction {
             let result = eval_rpn(rpn, parse_ctx)?;
             args.push(result);
         }
-        Ok(vec![Token::Number(Span::NONE, (self.inner)(args).to_string())])
+        Ok(vec![Token::Number(
+            Span::NONE,
+            (self.inner)(args).to_string(),
+        )])
     }
-
 }
 
 pub(crate) struct FunctionArg {
-
     pub(crate) token_positions: Vec<usize>,
-
 }
 
 impl FunctionArg {
-
     pub(crate) fn new(token_positions: Vec<usize>) -> Self {
-        Self {
-            token_positions
-        }
+        Self { token_positions }
     }
 
-    pub(crate) fn build(&self, value: &Vec<Token>, tokens: &mut Vec<Token>, offset: usize) -> usize {
+    pub(crate) fn build(
+        &self,
+        value: &Vec<Token>,
+        tokens: &mut Vec<Token>,
+        offset: usize,
+    ) -> usize {
         let added_tokens = value.len() + 1;
         for pos in self.token_positions.iter() {
             let pos = pos + offset;
@@ -671,7 +771,6 @@ impl FunctionArg {
         }
         added_tokens
     }
-
 }
 
 pub type PResult<T> = Result<T, DiagnosticBuilder>;
@@ -680,7 +779,11 @@ mod macros {
     #[macro_export]
     macro_rules! register_builtin_func {
         ($ctx:ident, $name:literal, $arg_count:literal, $func:expr/*tt*/) => {
-            $ctx.register_builtin_func(BuiltInFunction::new($name.to_string(), $arg_count, Box::new($func)));
+            $ctx.register_builtin_func(BuiltInFunction::new(
+                $name.to_string(),
+                $arg_count,
+                Box::new($func),
+            ));
         };
     }
 

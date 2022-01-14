@@ -1,11 +1,11 @@
+mod __lib;
+mod _lib;
+mod equation_solver;
+mod error;
 mod lexer;
 mod parser;
 mod shared;
 mod utils;
-mod error;
-mod equation_solver;
-mod _lib;
-mod __lib;
 use crate::_lib::{Config, DiagnosticsConfig};
 use colored::*;
 
