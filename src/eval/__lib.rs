@@ -1,7 +1,7 @@
-use crate::Config;
-use crate::lexer::Lexer;
-use crate::parser::{ParseContext, Parser, PResult};
-use crate::shared::Number;
+use crate::eval::_lib::Config;
+use crate::eval::lexer::Lexer;
+use crate::eval::parser::{ParseContext, Parser, PResult};
+use crate::eval::shared::Number;
 
 pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>> {
     let lexer = Lexer::new();

@@ -1,7 +1,7 @@
 use crate::diagnostic_builder;
-use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
-use crate::shared::{OpKind, SignKind, Token, TokenKind};
+use crate::eval::error::{DiagnosticBuilder, Span};
+use crate::eval::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
+use crate::eval::shared::{OpKind, SignKind, Token, TokenKind};
 
 pub(crate) struct Lexer {
 

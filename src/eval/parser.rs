@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::ops::Neg;
 use rust_decimal::MathematicalOps;
 use rust_decimal::prelude::ToPrimitive;
-use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{Associativity, Number, OpKind, Token, TokenKind};
+use crate::eval::error::{DiagnosticBuilder, Span};
+use crate::eval::shared::{Associativity, Number, OpKind, Token, TokenKind};
 #[macro_use]
-use crate::parser::macros as mac;
+use crate::eval::parser::macros as mac;
 use crate::{diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const};
 
 const NONE: usize = usize::MAX;

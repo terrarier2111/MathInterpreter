@@ -1,0 +1,9 @@
+pub(crate) mod lexer;
+pub(crate) mod parser;
+pub(crate) mod shared;
+pub(crate) mod utils;
+pub(crate) mod error;
+pub(crate) mod equation_solver;
+pub mod _lib;
+pub mod __lib;
+pub mod main;

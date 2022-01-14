@@ -1,6 +1,6 @@
 use std::rc::Rc;
 use rust_decimal::Decimal;
-use crate::error::Span;
+use crate::eval::error::Span;
 
 #[derive(Clone, Debug)]
 pub enum Token {

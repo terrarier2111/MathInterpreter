@@ -2,6 +2,7 @@
 name = "MathInterpreter"
 version = "0.1.0"
 edition = "2018"
+resolver="2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,3 +10,5 @@ edition = "2018"
 rust_decimal = { version = "1.19", features = ["maths"] }
 rust_decimal_macros = "1.19"
 colored = "2.0.0"
+winit = "0.26.1"
+wgpu = "0.12.0"

@@ -1,10 +1,10 @@
 // FIXME: Rename this to lib.rs once possible!
 
-use crate::__lib;
-use crate::__lib::EvalContext;
-use crate::_lib::DiagnosticsPrintingOrder::After;
-use crate::parser::PResult;
-use crate::shared::Number;
+use crate::eval::__lib;
+use crate::eval::__lib::EvalContext;
+use crate::eval::_lib::DiagnosticsPrintingOrder::After;
+use crate::eval::parser::PResult;
+use crate::eval::shared::Number;
 
 pub struct Config {
     diagnostics: DiagnosticsConfig,
