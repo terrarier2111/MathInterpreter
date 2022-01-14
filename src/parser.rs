@@ -3,7 +3,7 @@ use std::ops::Neg;
 use rust_decimal::MathematicalOps;
 use rust_decimal::prelude::ToPrimitive;
 use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{Associativity, Number, OpKind, Token, TokenKind};
+use crate::shared::{Associativity, ImplicitlyMultiply, Number, OpKind, Token, TokenKind};
 #[macro_use]
 use crate::parser::macros as mac;
 use crate::{diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const};
@@ -119,23 +119,35 @@ impl Parser {
         let mut brace_start = NONE;
         let mut brace_end = NONE;
         let mut arguments_list = vec![];
+
+        let mut last_token_mult = ImplicitlyMultiply::Never;
+        let mut multiplications = vec![];
         for token in self.tokens.iter().enumerate() {
-            match token.1 {
-                Token::OpenParen(_) => brace_start = token.0,
-                Token::ClosedParen(_) => brace_end = token.0,
-                Token::Eq(_) => {
-                    eq_location = token.0; // TODO: Detect second Eq and error!
-                    break;
-                },
-                Token::Comma(_) => arguments_list.push(token.0),
-                Token::Op(_, _) => {}
-                Token::Literal(..) => {}
-                Token::Number(_, _) => {}
-                Token::Sign(_, _) => {}
-                Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
-                Token::None => unreachable!(),
-                Token::VertBar(_) => {}
+            if eq_location == NONE {
+                match token.1 {
+                    Token::OpenParen(_) => brace_start = token.0,
+                    Token::ClosedParen(_) => brace_end = token.0,
+                    Token::Eq(_) => {
+                        eq_location = token.0; // TODO: Detect second Eq and error!
+                    },
+                    Token::Comma(_) => arguments_list.push(token.0),
+                    Token::Op(_, _) => {}
+                    Token::Literal(..) => {}
+                    Token::Number(_, _) => {}
+                    Token::Sign(_, _) => {}
+                    Token::Other(sp, raw) => return diagnostic_builder!(parse_context.input.clone(), format!("Unexpected token `{}`", raw), *sp),
+                    Token::None => unreachable!(),
+                    Token::VertBar(_) => {}
+                }
             }
+            let curr_token_mult = token.1.implicitly_multiply_left();
+            if curr_token_mult.can_multiply_with_left(last_token_mult) {
+                multiplications.push(token.0);
+            }
+            last_token_mult = curr_token_mult;
+        }
+        for x in multiplications.iter().enumerate() {
+            self.tokens.insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
         }
         let mut bar = NONE;
         let mut rec_eq = NONE;

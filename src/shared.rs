@@ -53,6 +53,22 @@ impl Token {
         }
     }
 
+    pub fn implicitly_multiply_left(&self) -> ImplicitlyMultiply {
+        match self {
+            Token::OpenParen(_) => ImplicitlyMultiply::Right,
+            Token::ClosedParen(_) => ImplicitlyMultiply::Left,
+            Token::Eq(_) => ImplicitlyMultiply::Never,
+            Token::VertBar(_) => ImplicitlyMultiply::Never,
+            Token::Comma(_) => ImplicitlyMultiply::Never,
+            Token::Op(_, _) => ImplicitlyMultiply::Never,
+            Token::Literal(_, _, _) => ImplicitlyMultiply::Always,
+            Token::Number(_, _) => ImplicitlyMultiply::Always,
+            Token::Sign(_, _) => unreachable!(),
+            Token::Other(_, _) => unreachable!(),
+            Token::None => unreachable!(),
+        }
+    }
+
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -75,6 +91,38 @@ impl TokenKind {
 
     pub fn to_string(&self) -> String {
         format!("{:?}", self)
+    }
+
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ImplicitlyMultiply {
+
+    Always,
+    Left,
+    Right,
+    Never,
+
+}
+
+impl ImplicitlyMultiply {
+
+    pub fn can_multiply_with_left(&self, left: ImplicitlyMultiply) -> bool {
+        match self {
+            ImplicitlyMultiply::Always => matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Left => false,
+            ImplicitlyMultiply::Right => matches!(left, ImplicitlyMultiply::Left | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Never => false,
+        }
+    }
+
+    pub fn can_multiply_with_right(&self, right: ImplicitlyMultiply) -> bool {
+        match self {
+            ImplicitlyMultiply::Always => matches!(right, ImplicitlyMultiply::Right | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Left => matches!(right, ImplicitlyMultiply::Right | ImplicitlyMultiply::Always),
+            ImplicitlyMultiply::Right => false,
+            ImplicitlyMultiply::Never => false,
+        }
     }
 
 }
