@@ -166,13 +166,11 @@ impl Parser {
                 token.1.implicitly_multiply_left()
             };
             if curr_token_mult.can_multiply_with_left(last_token_mult) {
-                println!("implicit mult {:?}", token.1);
                 multiplications.push(token.0);
             }
             last_token_mult = curr_token_mult;
         }
         for x in multiplications.iter().enumerate() {
-            println!("implicitly multiplying!");
             self.tokens
                 .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
         }
