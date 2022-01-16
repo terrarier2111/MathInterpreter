@@ -31,20 +31,24 @@ impl Parser {
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
-            if let Token::Literal(_, content, sign) = token.1 {
-                if parse_context.exists_var(content) {
-                    let mut var = parse_context.lookup_var(content);
-                    if sign == &SignKind::Minus {
-                        var = var.neg();
+            if let Token::Literal(_, content, sign, alphabetic) = token.1 {
+                if *alphabetic {
+                    if parse_context.exists_var(content) {
+                        let mut var = parse_context.lookup_var(content);
+                        if sign == &SignKind::Minus {
+                            var = var.neg();
+                        }
+                        replaced_tokens.push((token.0, var))
+                    } else if parse_context.exists_fn(content) {
+                        possibly_replaced_funcs.push((token.0, token.1.clone()));
                     }
-                    replaced_tokens.push((token.0, var))
-                } else if parse_context.exists_fn(content) {
-                    possibly_replaced_funcs.push((token.0, token.1.clone()));
                 }
             }
         }
         for token in replaced_tokens {
-            self.tokens[token.0] = Token::Number(Span::NONE, token.1.to_string());
+            self.tokens[token.0] =
+                Token::Literal(Span::NONE, token.1.to_string(), SignKind::Plus, false);
+            // TODO: Detect the correct sign!
         }
         for pr in possibly_replaced_funcs {
             let start = pr.0;
@@ -83,7 +87,6 @@ impl Parser {
                         }
                         Token::Op(_, _) => {}
                         Token::Literal(..) => {}
-                        Token::Number(_, _) => {}
                         Token::Sign(_, _) => {}
                         Token::Other(_, _) => {}
                         Token::None => unreachable!(),
@@ -101,17 +104,19 @@ impl Parser {
                 }
                 finished_args.push(result);
             }
-            if let Token::Literal(_span, func, _) = pr.1 {
-                for _ in 0..(end - start) {
-                    self.tokens.remove(start);
+            if let Token::Literal(_span, func, _, alphabetic) = pr.1 {
+                if alphabetic {
+                    for _ in 0..(end - start) {
+                        self.tokens.remove(start);
+                    }
+                    let result = parse_context.call_func(&func, finished_args)?;
+                    self.tokens.insert(pr.0, Token::OpenParen(pr.0));
+                    let len = result.len();
+                    for token in result.into_iter().enumerate() {
+                        self.tokens.insert(pr.0 + 1 + token.0, token.1);
+                    }
+                    self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen(pr.0));
                 }
-                let result = parse_context.call_func(&func, finished_args)?;
-                self.tokens.insert(pr.0, Token::OpenParen(pr.0));
-                let len = result.len();
-                for token in result.into_iter().enumerate() {
-                    self.tokens.insert(pr.0 + 1 + token.0, token.1);
-                }
-                self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen(pr.0));
             }
         }
         Ok(())
@@ -131,12 +136,12 @@ impl Parser {
                     Token::OpenParen(_) => brace_start = token.0,
                     Token::ClosedParen(_) => brace_end = token.0,
                     Token::Eq(_) => {
-                        eq_location = token.0; // TODO: Detect second Eq and error!
-                    }
+                        multiplications.clear();
+                        eq_location = token.0;
+                    } // TODO: Detect second Eq and error!
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
-                    Token::Number(_, _) => {}
                     Token::Sign(_, _) => {}
                     Token::Other(sp, raw) => {
                         return diagnostic_builder!(
@@ -149,13 +154,25 @@ impl Parser {
                     Token::VertBar(_) => {}
                 }
             }
-            let curr_token_mult = token.1.implicitly_multiply_left();
+            let curr_token_mult = if let Token::Literal(_, buff, _, alphabetic) = token.1 {
+                if *alphabetic
+                    && (parse_context.exists_fn(buff) || parse_context.exists_builtin_func(buff))
+                {
+                    ImplicitlyMultiply::Never
+                } else {
+                    ImplicitlyMultiply::Always
+                }
+            } else {
+                token.1.implicitly_multiply_left()
+            };
             if curr_token_mult.can_multiply_with_left(last_token_mult) {
+                println!("implicit mult {:?}", token.1);
                 multiplications.push(token.0);
             }
             last_token_mult = curr_token_mult;
         }
         for x in multiplications.iter().enumerate() {
+            println!("implicitly multiplying!");
             self.tokens
                 .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
         }
@@ -196,7 +213,6 @@ impl Parser {
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
-                    Token::Number(_, _) => {}
                     Token::Sign(_, _) => {}
                     Token::Other(sp, raw) => {
                         return diagnostic_builder!(
@@ -219,8 +235,15 @@ impl Parser {
                         self.tokens.get(brace_start).unwrap().span()
                     );
                 }
-                let func_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
-                    x
+                let func_name = if let Token::Literal(_, x, _, alphabetic) = self.tokens.remove(0) {
+                    if alphabetic {
+                        x
+                    } else {
+                        return diagnostic_builder!(
+                            parse_context.input.clone(),
+                            "No function name was given"
+                        );
+                    }
                 } else {
                     return diagnostic_builder!(
                         parse_context.input.clone(),
@@ -231,8 +254,10 @@ impl Parser {
                 for x in 0..eq_location {
                     let token = self.tokens.remove(0);
                     if x % 2 == 1 {
-                        if let Token::Literal(_, var, _) = token {
-                            arguments.push(var);
+                        if let Token::Literal(_, var, _, alphabetic) = token {
+                            if alphabetic {
+                                arguments.push(var);
+                            }
                         }
                     }
                 }
@@ -250,8 +275,15 @@ impl Parser {
             } else if brace_end != NONE {
                 return diagnostic_builder!(parse_context.input.clone(), "`)` at wrong location");
             } else {
-                let var_name = if let Token::Literal(_, x, _) = self.tokens.remove(0) {
-                    x
+                let var_name = if let Token::Literal(_, x, _, alphabetic) = self.tokens.remove(0) {
+                    if alphabetic {
+                        x
+                    } else {
+                        return diagnostic_builder!(
+                            parse_context.input.clone(),
+                            "No function name was given"
+                        );
+                    }
                 } else {
                     return diagnostic_builder!(
                         parse_context.input.clone(),
@@ -486,14 +518,17 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                 }
                 operator_stack.push(op);
             }
-            Token::Literal(sp, _, _) => {
-                return diagnostic_builder_spanned!(
-                    parse_ctx.input.clone(),
-                    "Failed to evaluate literal correctly",
-                    sp
-                );
+            Token::Literal(sp, _, _, alphabetic) => {
+                if alphabetic {
+                    return diagnostic_builder_spanned!(
+                        parse_ctx.input.clone(),
+                        "Failed to evaluate literal correctly",
+                        sp
+                    );
+                } else {
+                    output.push(token);
+                }
             }
-            Token::Number(_, _) => output.push(token),
             Token::Sign(sp, _) => {
                 return diagnostic_builder!(
                     parse_ctx.input.clone(),
@@ -563,14 +598,17 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 }
                 OpKind::OpenParen => unreachable!(),
             },
-            Token::Literal(sp, lit, _) => {
-                return diagnostic_builder_spanned!(
-                    parse_ctx.input.clone(),
-                    format!("Failed to evaluate literal `{}` correctly", lit),
-                    sp
-                );
+            Token::Literal(sp, lit, _, alphabetic) => {
+                if alphabetic {
+                    return diagnostic_builder_spanned!(
+                        parse_ctx.input.clone(),
+                        format!("Failed to evaluate literal `{}` correctly", lit),
+                        sp
+                    );
+                } else {
+                    num_stack.push(lit.parse::<Number>().unwrap());
+                }
             }
-            Token::Number(_, num) => num_stack.push(num.parse::<Number>().unwrap()),
             Token::Sign(_, _) => unreachable!(),
             Token::Other(_, _) => unreachable!(),
             Token::None => unreachable!(),
@@ -630,8 +668,8 @@ impl Function {
         for arg in arg_names.iter() {
             let mut arg_positions = vec![];
             for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str, _) = token.1 {
-                    if str == arg {
+                if let Token::Literal(_, str, _, alphabetic) = token.1 {
+                    if *alphabetic && str == arg {
                         arg_positions.push(token.0);
                     }
                 }
@@ -641,9 +679,10 @@ impl Function {
         // Perform constant replacement
         let mut replace_consts = vec![];
         for token in tokens.iter().enumerate() {
-            if let Token::Literal(span, str, _) = token.1 {
-                if !arg_names.contains(str) {
+            if let Token::Literal(span, str, _, alphabetic) = token.1 {
+                if *alphabetic && !arg_names.contains(str) {
                     if !parse_ctx.exists_const(str) {
+                        // FIXME: Support replacing fn calls!
                         return diagnostic_builder_spanned!(
                             parse_ctx.input.clone(),
                             "Not an argument or const",
@@ -655,7 +694,8 @@ impl Function {
             }
         }
         for x in replace_consts {
-            tokens[x.0] = Token::Number(Span::NONE, x.1?.to_string());
+            tokens[x.0] = Token::Literal(Span::NONE, x.1?.to_string(), SignKind::Plus, false);
+            // TODO: Detect sign correctly!
         }
 
         Ok(Self {
@@ -737,9 +777,11 @@ impl BuiltInFunction {
             let result = eval_rpn(rpn, parse_ctx)?;
             args.push(result);
         }
-        Ok(vec![Token::Number(
+        Ok(vec![Token::Literal(
             Span::NONE,
             (self.inner)(args).to_string(),
+            SignKind::Plus, // TODO: Detect sign correctly!
+            false,
         )])
     }
 }

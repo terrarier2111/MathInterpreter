@@ -184,7 +184,8 @@ impl Lexer {
                     }
                 }
                 _ => {
-                    if x.is_numeric() || x == '.' {
+                    if x.is_numeric() || x == '.' || x.is_alphabetic() || x == '_' || x == '#' {
+                        let alphabetic = x.is_alphabetic() || x == '_' || x == '#';
                         match &mut token_type {
                             None => {
                                 // This handles the case in which the last token **is not** part of the current token's literal
@@ -195,42 +196,6 @@ impl Lexer {
                                         c.0
                                     );
                                 }
-                                let mut num = String::from(x);
-                                let mut span_start = c.0;
-                                if !tokens.is_empty() {
-                                    if let Token::Sign(idx, sign) = tokens.last().unwrap() {
-                                        let sign = *sign;
-                                        span_start = *idx;
-                                        tokens.pop();
-                                        match sign {
-                                            SignKind::Plus => {}
-                                            SignKind::Minus => num.insert(0, '-'),
-                                        }
-                                    }
-                                }
-                                token_type = Some(Token::Number(Span::from_idx(span_start), num));
-                            }
-                            Some(token) => {
-                                // This handles the case in which the last token **is** part of the current token's literal
-                                match token {
-                                    Token::Number(span, buffer) => {
-                                        buffer.push(x);
-                                        span.expand_hi();
-                                    }
-                                    _ => {
-                                        tokens.push(token_type.take().unwrap());
-                                        token_type = Some(Token::Number(
-                                            Span::from_idx(c.0),
-                                            String::from(x),
-                                        ))
-                                    }
-                                }
-                            }
-                        }
-                    } else if x.is_alphabetic() || x == '_' || x == '#' {
-                        match &mut token_type {
-                            None => {
-                                // This handles the case in which the last token **is not** part of the current token's literal
                                 let sign = if !tokens.is_empty() {
                                     if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
                                         tokens.pop();
@@ -241,28 +206,22 @@ impl Lexer {
                                 } else {
                                     (c.0, SignKind::Plus)
                                 };
-
                                 token_type = Some(Token::Literal(
                                     Span::from_idx(sign.0),
                                     String::from(x),
                                     sign.1,
+                                    alphabetic,
                                 ));
                             }
                             Some(token) => {
                                 // This handles the case in which the last token **is** part of the current token's literal
                                 match token {
-                                    Token::Literal(span, buffer, _) => {
+                                    Token::Literal(span, buffer, _, prev_alphabetic) => {
+                                        *prev_alphabetic |= alphabetic;
                                         buffer.push(x);
                                         span.expand_hi();
                                     }
-                                    _ => {
-                                        tokens.push(token_type.take().unwrap());
-                                        token_type = Some(Token::Literal(
-                                            Span::from_idx(c.0),
-                                            String::from(x),
-                                            SignKind::Plus,
-                                        ));
-                                    }
+                                    _ => unreachable!(),
                                 }
                             }
                         }
@@ -275,7 +234,6 @@ impl Lexer {
             if let Some(token) = token {
                 match &token {
                     Token::Literal(..) => {}
-                    Token::Number(..) => {}
                     Token::None => {
                         // TODO: Remove this and make whitespace return None option and make literals/numbers return their respective token type! (how should we handle invalid/other tokens?)
                         if let Some(token) = token_type.take() {
@@ -291,7 +249,12 @@ impl Lexer {
                 }
             }
         }
-        if let Some(token) = token_type.take() {
+        if let Some(mut token) = token_type.take() {
+            if let Token::Literal(_, buffer, sign, alphabetic) = &mut token {
+                if sign == &mut SignKind::Minus {
+                    buffer.insert(0, '-');
+                }
+            }
             tokens.push(token);
         }
         Ok(tokens)
