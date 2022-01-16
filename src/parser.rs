@@ -1,5 +1,7 @@
 use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{Associativity, ImplicitlyMultiply, Number, OpKind, Token, TokenKind};
+use crate::shared::{
+    Associativity, ImplicitlyMultiply, Number, OpKind, SignKind, Token, TokenKind,
+};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::MathematicalOps;
 use std::collections::HashMap;
@@ -29,13 +31,11 @@ impl Parser {
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
-            if let Token::Literal(_, content, neg) = token.1 {
+            if let Token::Literal(_, content, sign) = token.1 {
                 if parse_context.exists_var(content) {
                     let mut var = parse_context.lookup_var(content);
-                    if let Some(x) = neg {
-                        if x.to_raw() == '-' {
-                            var = var.neg();
-                        }
+                    if sign == &SignKind::Minus {
+                        var = var.neg();
                     }
                     replaced_tokens.push((token.0, var))
                 } else if parse_context.exists_fn(content) {

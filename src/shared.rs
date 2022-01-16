@@ -10,7 +10,7 @@ pub enum Token {
     VertBar(usize),
     Comma(usize),
     Op(usize, OpKind),
-    Literal(Span, String, Option<SignKind>),
+    Literal(Span, String, SignKind),
     Number(Span, String),
     Sign(usize, SignKind),
     Other(usize, char),
@@ -148,7 +148,7 @@ impl OpKind {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SignKind {
     Plus,
     Minus,

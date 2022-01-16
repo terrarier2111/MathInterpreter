@@ -234,12 +234,12 @@ impl Lexer {
                                 let sign = if !tokens.is_empty() {
                                     if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
                                         tokens.pop();
-                                        (idx, Some(kind))
+                                        (idx, kind)
                                     } else {
-                                        (c.0, None)
+                                        (c.0, SignKind::Plus)
                                     }
                                 } else {
-                                    (c.0, None)
+                                    (c.0, SignKind::Plus)
                                 };
 
                                 token_type = Some(Token::Literal(
@@ -260,7 +260,7 @@ impl Lexer {
                                         token_type = Some(Token::Literal(
                                             Span::from_idx(c.0),
                                             String::from(x),
-                                            None,
+                                            SignKind::Plus,
                                         ));
                                     }
                                 }
