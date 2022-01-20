@@ -1,6 +1,6 @@
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{
-    Associativity, ImplicitlyMultiply, Number, OpKind, SignKind, Token, TokenKind,
+    Associativity, ImplicitlyMultiply, LiteralKind, Number, OpKind, SignKind, Token, TokenKind,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::MathematicalOps;
@@ -31,8 +31,8 @@ impl Parser {
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
-            if let Token::Literal(_, content, sign, alphabetic) = token.1 {
-                if *alphabetic {
+            if let Token::Literal(_, content, sign, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq {
                     if parse_context.exists_var(content) {
                         let mut var = parse_context.lookup_var(content);
                         if sign == &SignKind::Minus {
@@ -46,8 +46,12 @@ impl Parser {
             }
         }
         for token in replaced_tokens {
-            self.tokens[token.0] =
-                Token::Literal(Span::NONE, token.1.to_string(), SignKind::Plus, false);
+            self.tokens[token.0] = Token::Literal(
+                Span::NONE,
+                token.1.to_string(),
+                SignKind::Plus,
+                LiteralKind::Number,
+            );
             // TODO: Detect the correct sign!
         }
         for pr in possibly_replaced_funcs {
@@ -104,8 +108,8 @@ impl Parser {
                 }
                 finished_args.push(result);
             }
-            if let Token::Literal(_span, func, _, alphabetic) = pr.1 {
-                if alphabetic {
+            if let Token::Literal(_span, func, _, kind) = pr.1 {
+                if kind == LiteralKind::CharSeq {
                     for _ in 0..(end - start) {
                         self.tokens.remove(start);
                     }
@@ -154,8 +158,8 @@ impl Parser {
                     Token::VertBar(_) => {}
                 }
             }
-            let curr_token_mult = if let Token::Literal(_, buff, _, alphabetic) = token.1 {
-                if *alphabetic
+            let curr_token_mult = if let Token::Literal(_, buff, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq
                     && (parse_context.exists_fn(buff) || parse_context.exists_builtin_func(buff))
                 {
                     ImplicitlyMultiply::Never
@@ -233,8 +237,8 @@ impl Parser {
                         self.tokens.get(brace_start).unwrap().span()
                     );
                 }
-                let func_name = if let Token::Literal(_, x, _, alphabetic) = self.tokens.remove(0) {
-                    if alphabetic {
+                let func_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
+                    if kind == LiteralKind::CharSeq {
                         x
                     } else {
                         return diagnostic_builder!(
@@ -252,8 +256,8 @@ impl Parser {
                 for x in 0..eq_location {
                     let token = self.tokens.remove(0);
                     if x % 2 == 1 {
-                        if let Token::Literal(_, var, _, alphabetic) = token {
-                            if alphabetic {
+                        if let Token::Literal(_, var, _, kind) = token {
+                            if kind == LiteralKind::CharSeq {
                                 arguments.push(var);
                             }
                         }
@@ -273,8 +277,8 @@ impl Parser {
             } else if brace_end != NONE {
                 return diagnostic_builder!(parse_context.input.clone(), "`)` at wrong location");
             } else {
-                let var_name = if let Token::Literal(_, x, _, alphabetic) = self.tokens.remove(0) {
-                    if alphabetic {
+                let var_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
+                    if kind == LiteralKind::CharSeq {
                         x
                     } else {
                         return diagnostic_builder!(
@@ -516,8 +520,8 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                 }
                 operator_stack.push(op);
             }
-            Token::Literal(sp, _, _, alphabetic) => {
-                if alphabetic {
+            Token::Literal(sp, _, _, kind) => {
+                if kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
                         "Failed to evaluate literal correctly",
@@ -596,8 +600,8 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 }
                 OpKind::OpenParen => unreachable!(),
             },
-            Token::Literal(sp, lit, _, alphabetic) => {
-                if alphabetic {
+            Token::Literal(sp, lit, _, kind) => {
+                if kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
                         format!("Failed to evaluate literal `{}` correctly", lit),
@@ -666,8 +670,8 @@ impl Function {
         for arg in arg_names.iter() {
             let mut arg_positions = vec![];
             for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str, _, alphabetic) = token.1 {
-                    if *alphabetic && str == arg {
+                if let Token::Literal(_, str, _, kind) = token.1 {
+                    if *kind == LiteralKind::CharSeq && str == arg {
                         arg_positions.push(token.0);
                     }
                 }
@@ -677,8 +681,8 @@ impl Function {
         // Perform constant replacement
         let mut replace_consts = vec![];
         for token in tokens.iter().enumerate() {
-            if let Token::Literal(span, str, _, alphabetic) = token.1 {
-                if *alphabetic && !arg_names.contains(str) {
+            if let Token::Literal(span, str, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
                     if !parse_ctx.exists_const(str) {
                         // FIXME: Support replacing fn calls!
                         return diagnostic_builder_spanned!(
@@ -692,7 +696,12 @@ impl Function {
             }
         }
         for x in replace_consts {
-            tokens[x.0] = Token::Literal(Span::NONE, x.1?.to_string(), SignKind::Plus, false);
+            tokens[x.0] = Token::Literal(
+                Span::NONE,
+                x.1?.to_string(),
+                SignKind::Plus,
+                LiteralKind::Number,
+            );
             // TODO: Detect sign correctly!
         }
 
@@ -779,7 +788,7 @@ impl BuiltInFunction {
             Span::NONE,
             (self.inner)(args).to_string(),
             SignKind::Plus, // TODO: Detect sign correctly!
-            false,
+            LiteralKind::Number,
         )])
     }
 }

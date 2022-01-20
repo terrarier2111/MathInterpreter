@@ -1,7 +1,7 @@
 use crate::diagnostic_builder;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
-use crate::shared::{OpKind, SignKind, Token, TokenKind};
+use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenKind};
 
 pub(crate) struct Lexer {}
 
@@ -210,14 +210,20 @@ impl Lexer {
                                     Span::from_idx(sign.0),
                                     String::from(x),
                                     sign.1,
-                                    alphabetic,
+                                    if alphabetic {
+                                        LiteralKind::CharSeq
+                                    } else {
+                                        LiteralKind::Number
+                                    },
                                 ));
                             }
                             Some(token) => {
                                 // This handles the case in which the last token **is** part of the current token's literal
                                 match token {
-                                    Token::Literal(span, buffer, _, prev_alphabetic) => {
-                                        *prev_alphabetic |= alphabetic;
+                                    Token::Literal(span, buffer, _, prev_kind) => {
+                                        if alphabetic && prev_kind != &mut LiteralKind::CharSeq {
+                                            *prev_kind = LiteralKind::CharSeq;
+                                        }
                                         buffer.push(x);
                                         span.expand_hi();
                                     }

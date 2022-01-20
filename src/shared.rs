@@ -10,7 +10,7 @@ pub enum Token {
     VertBar(usize),
     Comma(usize),
     Op(usize, OpKind),
-    Literal(Span, String, SignKind, bool), // span, content, sign, contains_alphabetic
+    Literal(Span, String, SignKind, LiteralKind), // span, content, sign, kind
     Sign(usize, SignKind),
     Other(usize, char),
     None,
@@ -80,6 +80,12 @@ impl TokenKind {
     pub fn to_string(&self) -> String {
         format!("{:?}", self)
     }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LiteralKind {
+    Number,
+    CharSeq,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
