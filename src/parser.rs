@@ -28,6 +28,7 @@ impl Parser {
     }
 
     fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) -> PResult<()> {
+        println!("var_or_fn_calls!");
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
@@ -370,6 +371,7 @@ impl ParseContext {
         ret
     }
 
+    #[inline]
     pub fn set_input(&mut self, input: String) {
         self.input = input;
     }
@@ -655,6 +657,7 @@ pub enum ActionKind {
 pub(crate) struct Function {
     name: String,
     args: Vec<FunctionArg>,
+    virtual_calls: Vec<(usize, String, Vec<Vec<Token>>)>, // FIXME: Use these for calls to builtin funcs (and fix them somehow)!
     tokens: Vec<Token>,
 }
 
@@ -665,6 +668,84 @@ impl Function {
         mut tokens: Vec<Token>,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
+        // Perform constant replacement
+        let mut replace_consts = vec![];
+        let mut replace_fns = vec![];
+        for token in tokens.iter().enumerate().rev() {
+            if let Token::Literal(span, str, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
+                    if parse_ctx.exists_const(str) {
+                        replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
+                    } else if parse_ctx.exists_fn(str) && str != &name { // FIXME: Better detection for cyclic calls, support builtin calls!
+                        replace_fns.push(token.0);
+                    } else {
+                        return diagnostic_builder_spanned!(
+                            parse_ctx.input.clone(),
+                            "Not an argument or const",
+                            *span
+                        );
+                    }
+                }
+            }
+        }
+        for x in replace_consts {
+            tokens[x.0] = Token::Literal(
+                Span::NONE,
+                x.1?.to_string(),
+                SignKind::Plus,
+                LiteralKind::Number,
+            );
+            // TODO: Detect sign correctly!
+        }
+        let mut built_in = vec![];
+        for repl in replace_fns {
+            if let Token::OpenParen(_) = tokens.get(repl + 1).unwrap() {
+                tokens.remove(repl + 1);
+                let mut open = 1;
+                let mut args = vec![vec![]];
+                while open > 0 {
+                    let token = tokens.remove(repl + 1);
+                    match token {
+                        Token::OpenParen(_) => open += 1,
+                        Token::ClosedParen(_) => open -= 1,
+                        Token::Eq(_) => panic!(),
+                        Token::VertBar(_) => panic!(),
+                        Token::Comma(_) => {
+                            if open == 1 {
+                                args.push(vec![]);
+                            } else {
+                                panic!()
+                            }
+                            continue;
+                        }
+                        Token::Op(_, _) => {}, // NOOP
+                        Token::Literal(_, _, _, _) => {}, // NOOP
+                        Token::Sign(_, _) => panic!(), // FIXME: Is panicking here correct?
+                        Token::Other(_, _) => panic!(),
+                        Token::None => unreachable!()
+                    }
+                    if open != 0 {
+                        args.last_mut().unwrap().push(token.clone());
+                    }
+                }
+                let lit = if let Token::Literal(_, lit, ..) = tokens.get(repl).unwrap() {
+                    lit
+                } else {
+                    panic!()
+                };
+                if !parse_ctx.exists_builtin_func(lit) {
+                    let mut result = parse_ctx.call_func(lit, args);
+                    tokens.remove(repl);
+                    for token in result.unwrap().into_iter().enumerate() {
+                        tokens.insert(repl + token.0, token.1);
+                    }
+                } else {
+                    built_in.push((tokens.len() - repl, lit.clone(), args));
+                }
+            } else {
+                panic!()
+            }
+        }
         // Detect arguments
         let mut finished_args = vec![];
         for arg in arg_names.iter() {
@@ -678,36 +759,11 @@ impl Function {
             }
             finished_args.push(FunctionArg::new(arg_positions));
         }
-        // Perform constant replacement
-        let mut replace_consts = vec![];
-        for token in tokens.iter().enumerate() {
-            if let Token::Literal(span, str, _, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
-                    if !parse_ctx.exists_const(str) {
-                        // FIXME: Support replacing fn calls!
-                        return diagnostic_builder_spanned!(
-                            parse_ctx.input.clone(),
-                            "Not an argument or const",
-                            *span
-                        );
-                    }
-                    replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
-                }
-            }
-        }
-        for x in replace_consts {
-            tokens[x.0] = Token::Literal(
-                Span::NONE,
-                x.1?.to_string(),
-                SignKind::Plus,
-                LiteralKind::Number,
-            );
-            // TODO: Detect sign correctly!
-        }
 
         Ok(Self {
             name,
             args: finished_args,
+            virtual_calls: built_in,
             tokens,
         })
     }

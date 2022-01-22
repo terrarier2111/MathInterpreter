@@ -16,8 +16,8 @@ fn main() {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
         let result = _lib::eval(input, &mut context);
         match result {
-            Result::Ok(val) => println!("Result: {:?}", val),
-            Result::Err(err) => println!("Encountered an error:\n{}", err),
+            Ok(val) => println!("Result: {:?}", val),
+            Err(err) => println!("Encountered an error:\n{}", err),
         }
     }
 }
