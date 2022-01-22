@@ -94,6 +94,7 @@ impl Parser {
                         Token::Literal(..) => {}
                         Token::Sign(_, _) => {}
                         Token::Other(_, _) => {}
+                        Token::Region(_, _) => panic!(),
                         Token::None => unreachable!(),
                     }
                 }
@@ -155,8 +156,9 @@ impl Parser {
                             *sp
                         )
                     }
-                    Token::None => unreachable!(),
                     Token::VertBar(_) => {}
+                    Token::Region(_, _) => panic!(),
+                    Token::None => unreachable!(),
                 }
             }
             let curr_token_mult = if let Token::Literal(_, buff, _, kind) = token.1 {
@@ -224,6 +226,7 @@ impl Parser {
                             *sp
                         )
                     }
+                    Token::Region(_, _) => panic!(),
                     Token::None => unreachable!(),
                 }
             }
@@ -547,6 +550,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
                     sp
                 );
             }
+            Token::Region(_, _) => panic!(),
             Token::None => unreachable!(),
         }
     }
@@ -613,6 +617,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                     num_stack.push(lit.parse::<Number>().unwrap());
                 }
             }
+            Token::Region(_, _) => panic!(),
             Token::Sign(_, _) => unreachable!(),
             Token::Other(_, _) => unreachable!(),
             Token::None => unreachable!(),
@@ -720,9 +725,10 @@ impl Function {
                         }
                         Token::Op(_, _) => {}, // NOOP
                         Token::Literal(_, _, _, _) => {}, // NOOP
+                        Token::Region(_, _) => panic!(),
                         Token::Sign(_, _) => panic!(), // FIXME: Is panicking here correct?
                         Token::Other(_, _) => panic!(),
-                        Token::None => unreachable!()
+                        Token::None => unreachable!(),
                     }
                     if open != 0 {
                         args.last_mut().unwrap().push(token.clone());
@@ -875,6 +881,106 @@ impl FunctionArg {
             tokens.insert(end, Token::ClosedParen(usize::MAX));
         }
         added_tokens
+    }
+}
+
+fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<Region, DiagnosticBuilder> {
+    let mut start = usize::MAX;
+    let mut end = usize::MAX;
+    let mut open = 0;
+    for x in tokens.iter().enumerate().skip(parse_start) {
+        if let Token::OpenParen(_) = x.1 {
+            start = x.0;
+            open += 1;
+        } else if let Token::ClosedParen(_) = x.1 {
+            open -= 1;
+            if open == 0 {
+                end = x.0;
+                break;
+            }
+        }
+    }
+    if open != 0 {
+        panic!()
+    }
+    Ok(Region::new(start, end, tokens))
+}
+
+struct Region {
+    start: usize,
+    end: usize,
+    inner_span: Span,
+}
+
+impl Region {
+    fn new(start: usize, end: usize, tokens: &Vec<Token>) -> Self {
+        let inner_start = tokens.get(start).unwrap().span().start();
+        let inner_end = tokens.get(end).unwrap().span().end();
+        Self {
+            start,
+            end,
+            inner_span: Span::new(inner_start, inner_end),
+        }
+    }
+
+    fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
+        let mut inner_tokens = vec![];
+        for _ in self.start..self.end {
+            inner_tokens.push(tokens.remove(self.start));
+        }
+        tokens.insert(self.start, self.to_token(inner_tokens));
+    }
+
+    fn to_token(self, tokens: Vec<Token>) -> Token {
+        Token::Region(self.inner_span, tokens)
+    }
+
+    fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
+        if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
+            tokens.remove(self.start);
+            self.end -= 1;
+        }
+        if let Token::ClosedParen(_) = tokens.get(self.end).unwrap() {
+            tokens.remove(self.end);
+            self.end -= 1;
+        }
+    }
+
+    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) {
+        let braced_start = if let Token::OpenParen(_) = tokens.get(0).unwrap() {
+            1
+        } else {
+            0
+        };
+        let mut open = 0;
+        let mut partitions = vec![];
+        let mut partition_start = 0;
+        for x in tokens.iter().skip(self.start).enumerate() {
+            if x.0 >= (self.end - self.start) {
+                break;
+            }
+            if let Token::OpenParen(_) = x.1 {
+                open += 1;
+            } else if let Token::ClosedParen(_) = x.1 {
+                open -= 1;
+            } else if let Token::Comma(_) = x.1 {
+                if open == braced_start {
+                    partitions.push((partition_start, x.0 - 1));
+                    partition_start = x.0 + 1;
+                }
+            }
+        }
+        let mut neg_offset = 0;
+        for part in partitions {
+            let mut partition = vec![];
+            let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
+            let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
+            for _ in 0..(part.1 - part.0) {
+                partition.push(tokens.remove(part.0 - neg_offset));
+            }
+            tokens.insert(part.0 - neg_offset, Token::Region(Span::new(start, end), partition));
+            neg_offset += part.1 - part.0;
+        }
     }
 }
 

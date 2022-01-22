@@ -12,6 +12,7 @@ pub enum Token {
     Op(usize, OpKind),
     Literal(Span, String, SignKind, LiteralKind), // span, content, sign, kind
     Sign(usize, SignKind),
+    Region(Span, Vec<Token>),
     Other(usize, char),
     None,
 }
@@ -27,6 +28,7 @@ impl Token {
             Token::Op(..) => TokenKind::Op,
             Token::Literal(..) => TokenKind::Literal,
             Token::Sign(..) => TokenKind::Sign,
+            Token::Region(..) => TokenKind::Region,
             Token::Other(..) => TokenKind::Other,
             Token::None => unreachable!(),
         }
@@ -42,6 +44,7 @@ impl Token {
             Token::Op(idx, _) => Span::from_idx(*idx),
             Token::Literal(sp, ..) => *sp,
             Token::Sign(idx, _) => Span::from_idx(*idx),
+            Token::Region(sp, _) => *sp,
             Token::Other(idx, _) => Span::from_idx(*idx),
             Token::None => unreachable!(),
         }
@@ -56,6 +59,7 @@ impl Token {
             Token::Comma(_) => ImplicitlyMultiply::Never,
             Token::Op(_, _) => ImplicitlyMultiply::Never,
             Token::Literal(..) => ImplicitlyMultiply::Always,
+            Token::Region(..) => ImplicitlyMultiply::Always,
             Token::Sign(_, _) => unreachable!(),
             Token::Other(_, _) => unreachable!(),
             Token::None => unreachable!(),
@@ -73,6 +77,7 @@ pub enum TokenKind {
     Op,
     Literal,
     Sign,
+    Region,
     Other,
 }
 

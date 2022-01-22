@@ -61,6 +61,16 @@ impl Span {
         // TODO: Should this be renamed to grow_*?
         self.end += 1;
     }
+
+    #[inline]
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    #[inline]
+    pub fn end(&self) -> usize {
+        self.end
+    }
 }
 
 #[derive(Debug)]
