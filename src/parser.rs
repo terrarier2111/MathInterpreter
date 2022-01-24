@@ -662,7 +662,6 @@ pub enum ActionKind {
 pub(crate) struct Function {
     name: String,
     args: Vec<FunctionArg>,
-    virtual_calls: Vec<(usize, String, Vec<Vec<Token>>)>, // FIXME: Use these for calls to builtin funcs (and fix them somehow)!
     tokens: Vec<Token>,
 }
 
@@ -673,17 +672,28 @@ impl Function {
         mut tokens: Vec<Token>,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
+        // Detect arguments
+        let mut finished_args = vec![];
+        for arg in arg_names.iter() {
+            let mut arg_positions = vec![];
+            for token in tokens.iter().enumerate() {
+                if let Token::Literal(_, str, _, kind) = token.1 {
+                    if *kind == LiteralKind::CharSeq && str == arg {
+                        arg_positions.push(token.0);
+                    }
+                }
+            }
+            finished_args.push(FunctionArg::new(arg_positions));
+        }
+
         // Perform constant replacement
         let mut replace_consts = vec![];
-        let mut replace_fns = vec![];
         for token in tokens.iter().enumerate().rev() {
             if let Token::Literal(span, str, _, kind) = token.1 {
                 if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
                     if parse_ctx.exists_const(str) {
                         replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
-                    } else if parse_ctx.exists_fn(str) && str != &name { // FIXME: Better detection for cyclic calls, support builtin calls!
-                        replace_fns.push(token.0);
-                    } else {
+                    } else if !parse_ctx.exists_fn(str) || str == &name { // FIXME: Better detection for cyclic calls, support builtin calls!
                         return diagnostic_builder_spanned!(
                             parse_ctx.input.clone(),
                             "Not an argument or const",
@@ -702,8 +712,72 @@ impl Function {
             );
             // TODO: Detect sign correctly!
         }
-        let mut built_in = vec![];
-        for repl in replace_fns {
+
+        Ok(Self {
+            name,
+            args: finished_args,
+            tokens,
+        })
+    }
+
+    pub fn build_tokens(
+        &self,
+        arg_values: Vec<Vec<Token>>,
+        parse_ctx: &ParseContext,
+    ) -> PResult<Vec<Token>> {
+        let mut tokens = self.tokens.clone();
+        if self.args.len() != arg_values.len() {
+            let args_txt = if self.args.len() == 1 {
+                "argument"
+            } else {
+                "arguments"
+            };
+            return diagnostic_builder!(
+                parse_ctx.input.clone(),
+                format!(
+                    "Expected {} {}, got {}",
+                    self.args.len(),
+                    args_txt,
+                    arg_values.len()
+                )
+            );
+        }
+        let mut ret = tokens.clone();
+        let mut offset = 0;
+        for arg in self.args.iter().enumerate() {
+            offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
+        }
+        let mut replace_fns = vec![];
+        for x in tokens.iter().enumerate() {
+            if let Token::Literal(_, lit, ..) = x.1 {
+                if parse_ctx.exists_fn(lit) && lit != &self.name { // FIXME: Better detection for cyclic calls, support builtin calls!
+                    replace_fns.push(x.0);
+                }
+            }
+        }
+        let mut offset = 0_isize;
+        for repl in replace_fns.into_iter() { // TODO: HERE WAS .rev
+            let start = tokens.len();
+            let mut region = parse_braced_call_region(&tokens, (repl as isize/* + offset*/) as usize)?;
+            println!("region: {:?}", region);
+            let args = region.erase_and_provide_args(&mut tokens);
+            println!("tokens: {:?}", tokens);
+            let mut result = if let Token::Literal(..) = tokens.get(repl).unwrap() {
+                if let Token::Literal(_, lit, ..) = tokens.remove(repl) {
+                    parse_ctx.call_func(&lit, args)?
+                } else {
+                    panic!()
+                }
+            } else {
+                panic!("{} | {:?}", repl, tokens.get(repl).unwrap())
+            };
+            if result.len() != 1 {
+                println!("RESULT: {:?}", result);
+                panic!("Result has length: {}", result.len());
+            }
+            tokens.insert(repl, result.pop().unwrap());
+
+            /*
             if let Token::OpenParen(_) = tokens.get(repl + 1).unwrap() {
                 tokens.remove(repl + 1);
                 let mut open = 1;
@@ -750,55 +824,8 @@ impl Function {
                 }
             } else {
                 panic!()
-            }
-        }
-        // Detect arguments
-        let mut finished_args = vec![];
-        for arg in arg_names.iter() {
-            let mut arg_positions = vec![];
-            for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str, _, kind) = token.1 {
-                    if *kind == LiteralKind::CharSeq && str == arg {
-                        arg_positions.push(token.0);
-                    }
-                }
-            }
-            finished_args.push(FunctionArg::new(arg_positions));
-        }
-
-        Ok(Self {
-            name,
-            args: finished_args,
-            virtual_calls: built_in,
-            tokens,
-        })
-    }
-
-    pub fn build_tokens(
-        &self,
-        arg_values: Vec<Vec<Token>>,
-        parse_ctx: &ParseContext,
-    ) -> PResult<Vec<Token>> {
-        if self.args.len() != arg_values.len() {
-            let args_txt = if self.args.len() == 1 {
-                "argument"
-            } else {
-                "arguments"
-            };
-            return diagnostic_builder!(
-                parse_ctx.input.clone(),
-                format!(
-                    "Expected {} {}, got {}",
-                    self.args.len(),
-                    args_txt,
-                    arg_values.len()
-                )
-            );
-        }
-        let mut ret = self.tokens.clone();
-        let mut offset = 0;
-        for arg in self.args.iter().enumerate() {
-            offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
+            }*/
+            // offset += tokens.len() as isize - start;
         }
         Ok(ret)
     }
@@ -903,9 +930,11 @@ fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<R
     if open != 0 {
         panic!()
     }
+    println!("start {} end {}", start, end);
     Ok(Region::new(start, end, tokens))
 }
 
+#[derive(Debug)]
 struct Region {
     start: usize,
     end: usize,
@@ -935,6 +964,14 @@ impl Region {
         Token::Region(self.inner_span, tokens)
     }
 
+    fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
+        let mut inner = vec![];
+        for x in self.start..self.end {
+            inner.push(tokens.get(x).unwrap().clone());
+        }
+        inner
+    }
+
     fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
         if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
             tokens.remove(self.start);
@@ -946,16 +983,16 @@ impl Region {
         }
     }
 
-    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) {
-        let braced_start = if let Token::OpenParen(_) = tokens.get(0).unwrap() {
+    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
+        let braced_start = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() { // TODO: Is self.start correct here or should it be 0?
             1
         } else {
             0
         };
         let mut open = 0;
         let mut partitions = vec![];
-        let mut partition_start = 0;
-        for x in tokens.iter().skip(self.start).enumerate() {
+        let mut partition_start = braced_start;
+        for x in tokens.iter().skip(self.start).enumerate() { // TODO: Check skip locatiuon!
             if x.0 >= (self.end - self.start) {
                 break;
             }
@@ -965,11 +1002,16 @@ impl Region {
                 open -= 1;
             } else if let Token::Comma(_) = x.1 {
                 if open == braced_start {
-                    partitions.push((partition_start, x.0 - 1));
+                    partitions.push((self.start + partition_start, self.start + x.0 - 1)); // TODO: Check these self.start thingies
                     partition_start = x.0 + 1;
                 }
             }
         }
+        partitions.push((self.start + partition_start, self.start + (self.end - self.start) - 1)); // TODO: Test this -1, maybe should it be -0 or -2?
+        for x in partitions.iter() {
+            println!("PARTITION AT: {} TO {}", x.0, x.1);
+        }
+        let mut resulting_partitions = vec![];
         let mut neg_offset = 0;
         for part in partitions {
             let mut partition = vec![];
@@ -979,7 +1021,34 @@ impl Region {
                 partition.push(tokens.remove(part.0 - neg_offset));
             }
             tokens.insert(part.0 - neg_offset, Token::Region(Span::new(start, end), partition));
+            resulting_partitions.push(part.0 - neg_offset);
             neg_offset += part.1 - part.0;
+        }
+        resulting_partitions
+    }
+
+    fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
+        println!("TOKENS_BEFORE: {:?}", tokens);
+        let mut result = vec![];
+        let arg_indices = self.partition_by_comma(tokens);
+        let args = arg_indices.len();
+        for x in arg_indices.into_iter().enumerate() {
+            let token = tokens.remove(x.1 - x.0);
+            if let Token::Region(_, tokens) = token {
+                result.push(tokens);
+            } else {
+                panic!("No argument found, but {:?}", token);
+            }
+        }
+        self.end -= args;
+        self.erase(tokens);
+        println!("TOKENS_AFTER: {:?}", tokens);
+        result
+    }
+
+    fn erase(self, tokens: &mut Vec<Token>) {
+        for _ in self.start..self.end {
+            tokens.remove(self.start);
         }
     }
 }
