@@ -725,7 +725,6 @@ impl Function {
         arg_values: Vec<Vec<Token>>,
         parse_ctx: &ParseContext,
     ) -> PResult<Vec<Token>> {
-        let mut tokens = self.tokens.clone();
         if self.args.len() != arg_values.len() {
             let args_txt = if self.args.len() == 1 {
                 "argument"
@@ -742,10 +741,10 @@ impl Function {
                 )
             );
         }
-        let mut ret = tokens.clone();
+        let mut tokens = self.tokens.clone();
         let mut offset = 0;
         for arg in self.args.iter().enumerate() {
-            offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
+            offset += arg.1.build(&arg_values[arg.0], &mut tokens, offset);
         }
         let mut replace_fns = vec![];
         for x in tokens.iter().enumerate() {
@@ -760,7 +759,14 @@ impl Function {
             let start = tokens.len();
             let mut region = parse_braced_call_region(&tokens, (repl as isize/* + offset*/) as usize)?;
             println!("region: {:?}", region);
+            for token in tokens.iter().skip(region.start).enumerate() {
+                if token.0 >= region.end - region.start {
+                    break;
+                }
+                println!("token: {:?}", token.1);
+            }
             let args = region.erase_and_provide_args(&mut tokens);
+            println!("args: {:?}", args);
             println!("tokens: {:?}", tokens);
             let mut result = if let Token::Literal(..) = tokens.get(repl).unwrap() {
                 if let Token::Literal(_, lit, ..) = tokens.remove(repl) {
@@ -771,11 +777,16 @@ impl Function {
             } else {
                 panic!("{} | {:?}", repl, tokens.get(repl).unwrap())
             };
+            /*
             if result.len() != 1 {
                 println!("RESULT: {:?}", result);
                 panic!("Result has length: {}", result.len());
+            }*/
+            println!("RESULT: {:?}", result);
+            for token in result.into_iter().enumerate() {
+                tokens.insert(repl + token.0, token.1);
             }
-            tokens.insert(repl, result.pop().unwrap());
+            println!("tokens: {:?}", tokens);
 
             /*
             if let Token::OpenParen(_) = tokens.get(repl + 1).unwrap() {
@@ -825,9 +836,9 @@ impl Function {
             } else {
                 panic!()
             }*/
-            // offset += tokens.len() as isize - start;
+            offset += tokens.len() as isize - start as isize;
         }
-        Ok(ret)
+        Ok(tokens)
     }
 }
 
@@ -917,7 +928,9 @@ fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<R
     let mut open = 0;
     for x in tokens.iter().enumerate().skip(parse_start) {
         if let Token::OpenParen(_) = x.1 {
-            start = x.0;
+            if open == 0 {
+                start = x.0;
+            }
             open += 1;
         } else if let Token::ClosedParen(_) = x.1 {
             open -= 1;
@@ -930,8 +943,8 @@ fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<R
     if open != 0 {
         panic!()
     }
-    println!("start {} end {}", start, end);
-    Ok(Region::new(start, end, tokens))
+    println!("start {} end {} parse_start {}", start, end + 1, parse_start);
+    Ok(Region::new(start, end + 1, tokens))
 }
 
 #[derive(Debug)]
@@ -1007,7 +1020,7 @@ impl Region {
                 }
             }
         }
-        partitions.push((self.start + partition_start, self.start + (self.end - self.start) - 1)); // TODO: Test this -1, maybe should it be -0 or -2?
+        partitions.push((self.start + partition_start, self.start + (self.end - self.start) - 1)); // TODO: Test this -1, maybe should it be -0 or -2? AND fix this properly instead of simply adding +1
         for x in partitions.iter() {
             println!("PARTITION AT: {} TO {}", x.0, x.1);
         }
@@ -1018,9 +1031,11 @@ impl Region {
             let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
             let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
             for _ in 0..(part.1 - part.0) {
+                self.end -= 1;
                 partition.push(tokens.remove(part.0 - neg_offset));
             }
             tokens.insert(part.0 - neg_offset, Token::Region(Span::new(start, end), partition));
+            self.end += 1;
             resulting_partitions.push(part.0 - neg_offset);
             neg_offset += part.1 - part.0;
         }
@@ -1041,6 +1056,7 @@ impl Region {
             }
         }
         self.end -= args;
+        println!("TOKENS_PRE_AFTER: {:?}", tokens);
         self.erase(tokens);
         println!("TOKENS_AFTER: {:?}", tokens);
         result
