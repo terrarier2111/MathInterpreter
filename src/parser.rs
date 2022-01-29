@@ -5,7 +5,7 @@ use crate::shared::{
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::MathematicalOps;
 use std::collections::HashMap;
-use std::ops::Neg;
+use std::ops::{Index, Neg};
 #[macro_use]
 use crate::parser::macros as mac;
 use crate::{
@@ -661,7 +661,8 @@ pub enum ActionKind {
 
 pub(crate) struct Function {
     name: String,
-    args: Vec<FunctionArg>,
+    args: usize,
+    arg_refs: Vec<(usize, usize)>, // position, arg index
     tokens: Vec<Token>,
 }
 
@@ -673,17 +674,23 @@ impl Function {
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
         // Detect arguments
-        let mut finished_args = vec![];
-        for arg in arg_names.iter() {
-            let mut arg_positions = vec![];
-            for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str, _, kind) = token.1 {
-                    if *kind == LiteralKind::CharSeq && str == arg {
-                        arg_positions.push(token.0);
+        let mut arg_refs = vec![];
+        for token in tokens.iter().enumerate() {
+            if let Token::Literal(_, lit, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq && arg_names.contains(lit) {
+                    let mut loc = usize::MAX;
+                    for arg in arg_names.iter().enumerate() {
+                        if arg.1 == lit {
+                            loc = arg.0;
+                            break;
+                        }
                     }
+                    if loc == usize::MAX {
+                        unreachable!()
+                    }
+                    arg_refs.push((token.0, loc));
                 }
             }
-            finished_args.push(FunctionArg::new(arg_positions));
         }
 
         // Perform constant replacement
@@ -693,7 +700,8 @@ impl Function {
                 if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
                     if parse_ctx.exists_const(str) {
                         replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
-                    } else if !parse_ctx.exists_fn(str) || str == &name { // FIXME: Better detection for cyclic calls, support builtin calls!
+                    } else if !parse_ctx.exists_fn(str) || str == &name {
+                        // FIXME: Better detection for cyclic calls, support builtin calls!
                         return diagnostic_builder_spanned!(
                             parse_ctx.input.clone(),
                             "Not an argument or const",
@@ -715,7 +723,8 @@ impl Function {
 
         Ok(Self {
             name,
-            args: finished_args,
+            args: arg_names.len(),
+            arg_refs,
             tokens,
         })
     }
@@ -725,8 +734,8 @@ impl Function {
         arg_values: Vec<Vec<Token>>,
         parse_ctx: &ParseContext,
     ) -> PResult<Vec<Token>> {
-        if self.args.len() != arg_values.len() {
-            let args_txt = if self.args.len() == 1 {
+        if self.args != arg_values.len() {
+            let args_txt = if self.args == 1 {
                 "argument"
             } else {
                 "arguments"
@@ -735,7 +744,7 @@ impl Function {
                 parse_ctx.input.clone(),
                 format!(
                     "Expected {} {}, got {}",
-                    self.args.len(),
+                    self.args,
                     args_txt,
                     arg_values.len()
                 )
@@ -743,21 +752,25 @@ impl Function {
         }
         let mut tokens = self.tokens.clone();
         let mut offset = 0;
-        for arg in self.args.iter().enumerate() {
-            offset += arg.1.build(&arg_values[arg.0], &mut tokens, offset);
+        for arg in self.arg_refs.iter() {
+            println!("replacing arg at {} in {}", arg.0, self.name);
+            offset += build_arg(&arg_values[arg.1], &mut tokens, offset, arg.0);
         }
         let mut replace_fns = vec![];
         for x in tokens.iter().enumerate() {
             if let Token::Literal(_, lit, ..) = x.1 {
-                if parse_ctx.exists_fn(lit) && lit != &self.name { // FIXME: Better detection for cyclic calls, support builtin calls!
+                if parse_ctx.exists_fn(lit) && lit != &self.name {
+                    // FIXME: Better detection for cyclic calls, support builtin calls!
                     replace_fns.push(x.0);
                 }
             }
         }
         let mut offset = 0_isize;
-        for repl in replace_fns.into_iter() { // TODO: HERE WAS .rev
+        for repl in replace_fns.into_iter() {
+            // TODO: HERE WAS .rev
             let start = tokens.len();
-            let mut region = parse_braced_call_region(&tokens, (repl as isize/* + offset*/) as usize)?;
+            let mut region =
+                parse_braced_call_region(&tokens, (repl as isize/* + offset*/) as usize)?;
             println!("region: {:?}", region);
             for token in tokens.iter().skip(region.start).enumerate() {
                 if token.0 >= region.end - region.start {
@@ -786,7 +799,15 @@ impl Function {
             for token in result.into_iter().enumerate() {
                 tokens.insert(repl + token.0, token.1);
             }
-            println!("tokens: {:?}", tokens);
+            println!("tokens: \n{}", tokens_to_string(&tokens));
+
+            fn tokens_to_string(tokens: &Vec<Token>) -> String {
+                let mut result = String::new();
+                for token in tokens.iter() {
+                    result.push_str(token.to_raw().as_str());
+                }
+                result
+            }
 
             /*
             if let Token::OpenParen(_) = tokens.get(repl + 1).unwrap() {
@@ -893,36 +914,28 @@ impl BuiltInFunction {
     }
 }
 
-pub(crate) struct FunctionArg {
-    pub(crate) token_positions: Vec<usize>,
+pub(crate) fn build_arg(
+    value: &Vec<Token>,
+    tokens: &mut Vec<Token>,
+    offset: usize,
+    token_pos: usize,
+) -> usize {
+    // TODO: Build all argument usages up from their usage position and not their definition position (get rid of the token_positions field and move it outside the individual arguments) |:| CHECK IF THIS IS ALREADY FIXED AND WORKING!
+    let pos = token_pos + offset;
+    tokens[pos] = Token::OpenParen(usize::MAX);
+    let end = pos + 1 + value.len();
+    for token in value.into_iter().enumerate() {
+        tokens.insert(pos + 1 + token.0, token.1.clone());
+    }
+    tokens.insert(end, Token::ClosedParen(usize::MAX));
+
+    value.len() + 1
 }
 
-impl FunctionArg {
-    pub(crate) fn new(token_positions: Vec<usize>) -> Self {
-        Self { token_positions }
-    }
-
-    pub(crate) fn build(
-        &self,
-        value: &Vec<Token>,
-        tokens: &mut Vec<Token>,
-        offset: usize,
-    ) -> usize {
-        let added_tokens = value.len() + 1;
-        for pos in self.token_positions.iter() {
-            let pos = pos + offset;
-            tokens[pos] = Token::OpenParen(usize::MAX);
-            let end = pos + 1 + value.len().clone();
-            for token in value.into_iter().enumerate() {
-                tokens.insert(pos + 1 + token.0, token.1.clone());
-            }
-            tokens.insert(end, Token::ClosedParen(usize::MAX));
-        }
-        added_tokens
-    }
-}
-
-fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<Region, DiagnosticBuilder> {
+fn parse_braced_call_region(
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Result<Region, DiagnosticBuilder> {
     let mut start = usize::MAX;
     let mut end = usize::MAX;
     let mut open = 0;
@@ -943,7 +956,12 @@ fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<R
     if open != 0 {
         panic!()
     }
-    println!("start {} end {} parse_start {}", start, end + 1, parse_start);
+    println!(
+        "start {} end {} parse_start {}",
+        start,
+        end + 1,
+        parse_start
+    );
     Ok(Region::new(start, end + 1, tokens))
 }
 
@@ -997,16 +1015,18 @@ impl Region {
     }
 
     fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
-        let braced_start = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() { // TODO: Is self.start correct here or should it be 0?
+        let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
+            // TODO: Is self.start correct here or should it be 0?
             1
         } else {
             0
         };
         let mut open = 0;
         let mut partitions = vec![];
-        let mut partition_start = braced_start;
-        for x in tokens.iter().skip(self.start).enumerate() { // TODO: Check skip locatiuon!
-            if x.0 >= (self.end - self.start) {
+        let mut partition_start = braced_offset;
+        for x in tokens.iter().skip(self.start + braced_offset).enumerate() {
+            // TODO: Check skip location!
+            if x.0 >= (self.end - self.start - braced_offset) {
                 break;
             }
             if let Token::OpenParen(_) = x.1 {
@@ -1014,13 +1034,26 @@ impl Region {
             } else if let Token::ClosedParen(_) = x.1 {
                 open -= 1;
             } else if let Token::Comma(_) = x.1 {
-                if open == braced_start {
-                    partitions.push((self.start + partition_start, self.start + x.0 - 1)); // TODO: Check these self.start thingies
-                    partition_start = x.0 + 1;
+                if open == 0 {
+                    partitions.push((
+                        self.start + partition_start,
+                        self.start + braced_offset + x.0, /* - 1*/
+                    )); // TODO: Check these self.start thingies
+                    partition_start = braced_offset + x.0 + 1;
+                    println!(
+                        "partition start at {}",
+                        tokens.get(self.start + partition_start).unwrap()
+                    );
+                } else {
+                    println!("other comma!");
                 }
             }
         }
-        partitions.push((self.start + partition_start, self.start + (self.end - self.start) - 1)); // TODO: Test this -1, maybe should it be -0 or -2? AND fix this properly instead of simply adding +1
+        partitions.push((self.start + partition_start, self.end - braced_offset)); // TODO: Test this -1, maybe should it be -0 or -2? AND fix this properly instead of simply adding +1
+        println!(
+            "partition start at {}",
+            tokens.get(self.start + partition_start).unwrap()
+        );
         for x in partitions.iter() {
             println!("PARTITION AT: {} TO {}", x.0, x.1);
         }
@@ -1028,16 +1061,25 @@ impl Region {
         let mut neg_offset = 0;
         for part in partitions {
             let mut partition = vec![];
+            let partition_len = part.1 - part.0;
             let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
             let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
-            for _ in 0..(part.1 - part.0) {
-                self.end -= 1;
+            for _ in 0..partition_len {
                 partition.push(tokens.remove(part.0 - neg_offset));
             }
-            tokens.insert(part.0 - neg_offset, Token::Region(Span::new(start, end), partition));
+            tokens.insert(
+                part.0 - neg_offset,
+                Token::Region(Span::new(start, end), partition),
+            );
             self.end += 1;
             resulting_partitions.push(part.0 - neg_offset);
-            neg_offset += part.1 - part.0;
+            neg_offset += partition_len - 1;
+            self.end -= partition_len;
+        }
+        for part in resulting_partitions.iter() {
+            if let Token::Region(_, tokens) = tokens.get(*part).unwrap() {
+                println!("PARTITION_CONTENT: {:?}", tokens);
+            }
         }
         resulting_partitions
     }
