@@ -635,7 +635,6 @@ impl Function {
                     if parse_ctx.exists_const(str) {
                         replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
                     } else if !parse_ctx.exists_fn(str) || str == &name {
-                        // FIXME: Better detection for cyclic calls, support builtin calls!
                         return diagnostic_builder_spanned!(
                             parse_ctx.input.clone(),
                             "Not an argument or const",
@@ -687,7 +686,6 @@ impl Function {
         let mut tokens = self.tokens.clone();
         let mut offset = 0;
         for arg in self.arg_refs.iter() {
-            println!("replacing arg at {} in {}", arg.0, self.name);
             offset += build_arg(&arg_values[arg.1], &mut tokens, offset, arg.0);
         }
         let mut replace_fns = vec![];
@@ -772,25 +770,17 @@ pub(crate) fn build_arg(
     value.len() + 1
 }
 
-fn replace_fn_calls(fns: Vec<usize>, tokens: &mut Vec<Token>, parse_ctx: &ParseContext) -> Result<(), DiagnosticBuilder> {
-    println!("replace fn calls!");
+fn replace_fn_calls(
+    fns: Vec<usize>,
+    tokens: &mut Vec<Token>,
+    parse_ctx: &ParseContext,
+) -> Result<(), DiagnosticBuilder> {
     let mut offset = 0_isize;
     for repl in fns.into_iter() {
         let adjusted_idx = (repl as isize + offset) as usize;
         let start = tokens.len();
-        let mut region =
-            parse_braced_call_region(tokens, adjusted_idx)?;
-        println!("region: {:?}", region);
-        println!("region tokens: {}", tokens_to_string_ranged(tokens, region.start, region.end));
-        for token in tokens.iter().skip(region.start).enumerate() {
-            if token.0 >= region.end - region.start {
-                break;
-            }
-            println!("token: {:?}", token.1);
-        }
+        let mut region = parse_braced_call_region(tokens, adjusted_idx)?;
         let args = region.erase_and_provide_args(tokens);
-        println!("args: {:?}", args);
-        println!("tokens: {:?}", tokens);
         let mut result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
             if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
                 parse_ctx.call_func(&lit, args)?
@@ -798,14 +788,11 @@ fn replace_fn_calls(fns: Vec<usize>, tokens: &mut Vec<Token>, parse_ctx: &ParseC
                 panic!()
             }
         } else {
-            println!("rtokens: {}", tokens_to_string(tokens));
             panic!("{} | {:?}", adjusted_idx, tokens.get(adjusted_idx).unwrap())
         };
-        println!("RESULT: {:?}", result);
         for token in result.into_iter().enumerate() {
             tokens.insert(adjusted_idx + token.0, token.1);
         }
-        println!("tokens: \n{}", tokens_to_string(&tokens));
 
         fn tokens_to_string(tokens: &Vec<Token>) -> String {
             let mut result = String::new();
@@ -853,15 +840,9 @@ fn parse_braced_call_region(
         }
     }
     if open != 0 {
-        panic!()
+        panic!("The brace count during region parsing didn't match!") // TODO: Make this to a diagnostic builder!
     }
-    println!(
-        "start {} end {} parse_start {}",
-        start,
-        end/* + 1*/,
-        parse_start
-    );
-    Ok(Region::new(start, end/* + 1*/, tokens))
+    Ok(Region::new(start, end, tokens))
 }
 
 #[derive(Debug)]
@@ -915,7 +896,6 @@ impl Region {
 
     fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
         let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
-            // TODO: Is self.start correct here or should it be 0?
             1
         } else {
             0
@@ -924,7 +904,6 @@ impl Region {
         let mut partitions = vec![];
         let mut partition_start = braced_offset;
         for x in tokens.iter().skip(self.start + braced_offset).enumerate() {
-            // TODO: Check skip location!
             if x.0 >= (self.end - self.start - braced_offset) {
                 break;
             }
@@ -936,26 +915,13 @@ impl Region {
                 if open == 0 {
                     partitions.push((
                         self.start + partition_start,
-                        self.start + braced_offset + x.0, /* - 1*/
-                    )); // TODO: Check these self.start thingies
+                        self.start + braced_offset + x.0,
+                    ));
                     partition_start = braced_offset + x.0 + 1;
-                    println!(
-                        "partition start at {}",
-                        tokens.get(self.start + partition_start).unwrap()
-                    );
-                } else {
-                    println!("other comma!");
                 }
             }
         }
-        partitions.push((self.start + partition_start, self.end/* - braced_offset*/)); // TODO: Test this -1, maybe should it be -0 or -2? AND fix this properly instead of simply adding +1
-        println!(
-            "partition start at {}",
-            tokens.get(self.start + partition_start).unwrap()
-        );
-        for x in partitions.iter() {
-            println!("PARTITION AT: {} TO {}", x.0, x.1);
-        }
+        partitions.push((self.start + partition_start, self.end));
         let mut resulting_partitions = vec![];
         let mut neg_offset = 0;
         for part in partitions {
@@ -975,16 +941,10 @@ impl Region {
             neg_offset += partition_len - 1;
             self.end -= partition_len;
         }
-        for part in resulting_partitions.iter() {
-            if let Token::Region(_, tokens) = tokens.get(*part).unwrap() {
-                println!("PARTITION_CONTENT: {:?}", tokens);
-            }
-        }
         resulting_partitions
     }
 
     fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
-        println!("TOKENS_BEFORE: {:?}", tokens);
         let mut result = vec![];
         let arg_indices = self.partition_by_comma(tokens);
         let args = arg_indices.len();
@@ -997,9 +957,7 @@ impl Region {
             }
         }
         self.end -= args;
-        println!("TOKENS_PRE_AFTER: {:?}", tokens);
         self.erase(tokens);
-        println!("TOKENS_AFTER: {:?}", tokens);
         result
     }
 
