@@ -536,7 +536,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 }
                 OpKind::OpenParen => unreachable!(),
             },
-            Token::Literal(sp, lit, _, kind) => {
+            Token::Literal(sp, lit, sign, kind) => {
                 if kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
@@ -544,7 +544,11 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                         sp
                     );
                 } else {
-                    num_stack.push(lit.parse::<Number>().unwrap());
+                    let mut num = lit.parse::<Number>().unwrap();
+                    if sign == SignKind::Minus {
+                        num = num.neg();
+                    }
+                    num_stack.push(num);
                 }
             }
             Token::Region(_, _) => panic!(),
@@ -769,6 +773,7 @@ pub(crate) fn build_arg(
 }
 
 fn replace_fn_calls(fns: Vec<usize>, tokens: &mut Vec<Token>, parse_ctx: &ParseContext) -> Result<(), DiagnosticBuilder> {
+    println!("replace fn calls!");
     let mut offset = 0_isize;
     for repl in fns.into_iter() {
         let adjusted_idx = (repl as isize + offset) as usize;
