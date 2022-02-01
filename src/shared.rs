@@ -1,5 +1,6 @@
 use crate::error::Span;
 use rust_decimal::Decimal;
+use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -65,7 +66,53 @@ impl Token {
             Token::None => unreachable!(),
         }
     }
+
+    pub fn to_raw(&self) -> String {
+        match self {
+            Token::OpenParen(_) => String::from("("),
+            Token::ClosedParen(_) => String::from(")"),
+            Token::Eq(_) => String::from("="),
+            Token::VertBar(_) => String::from("|"),
+            Token::Comma(_) => String::from(","),
+            Token::Op(_, op) => match op {
+                OpKind::Plus => String::from("+"),
+                OpKind::Minus => String::from("-"),
+                OpKind::Divide => String::from("/"),
+                OpKind::Multiply => String::from("*"),
+                OpKind::Modulo => String::from("%"),
+                OpKind::Pow => String::from("^"),
+                OpKind::OpenParen => panic!("Are you sure this is correct?"), // TODO: Check this!
+            },
+            Token::Literal(_, buf, sign, _) => {
+                let mut result = buf.clone();
+                if sign == &SignKind::Minus {
+                    result.insert(0, sign.to_raw()); // TODO: Should this to_raw call be replaced by a '-'?
+                }
+                result
+            }
+            Token::Sign(_, sign) => String::from(sign.to_raw()),
+            Token::Region(_, _) => todo!(),
+            Token::Other(_, raw) => String::from(*raw),
+            Token::None => unreachable!(),
+        }
+    }
 }
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_raw().as_str())
+    }
+}
+
+/*
+impl Display for Vec<Token> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for _ in self.iter() {
+            f.write_str(self.to_raw().as_str())?;
+        }
+        std::fmt::Result::Ok(())
+    }
+}*/
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
