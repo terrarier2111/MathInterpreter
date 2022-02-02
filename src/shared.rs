@@ -1,9 +1,7 @@
-use crate::error::Span;
-use rust_decimal::Decimal;
-use std::fmt::{Display, Formatter};
-use rust_decimal::{Decimal, MathematicalOps};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
+use crate::error::Span;
+use rust_decimal::{Decimal, MathematicalOps};
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -106,16 +104,6 @@ impl Display for Token {
         f.write_str(self.to_raw().as_str())
     }
 }
-
-/*
-impl Display for Vec<Token> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for _ in self.iter() {
-            f.write_str(self.to_raw().as_str())?;
-        }
-        std::fmt::Result::Ok(())
-    }
-}*/
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
