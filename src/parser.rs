@@ -5,7 +5,7 @@ use crate::shared::{
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::MathematicalOps;
 use std::collections::HashMap;
-use std::ops::Neg;
+use std::ops::{Index, Neg, Range};
 #[macro_use]
 use crate::parser::macros as mac;
 use crate::{
@@ -28,7 +28,6 @@ impl Parser {
     }
 
     fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) -> PResult<()> {
-        println!("var_or_fn_calls!");
         let mut replaced_tokens = vec![];
         let mut possibly_replaced_funcs = vec![];
         for token in self.tokens.iter().enumerate() {
@@ -41,7 +40,7 @@ impl Parser {
                         }
                         replaced_tokens.push((token.0, var))
                     } else if parse_context.exists_fn(content) {
-                        possibly_replaced_funcs.push((token.0, token.1.clone()));
+                        possibly_replaced_funcs.push(token.0);
                     }
                 }
             }
@@ -55,76 +54,7 @@ impl Parser {
             );
             // TODO: Detect the correct sign!
         }
-        for pr in possibly_replaced_funcs {
-            let start = pr.0;
-            let mut args: Vec<(usize, usize)> = vec![];
-            if self.tokens[pr.0 + 1].kind() == TokenKind::OpenParen {
-                let mut offset = 1;
-                let mut arg_start = pr.0 + 1 + 1;
-                let mut opened_parens = 1;
-                loop {
-                    offset += 1;
-                    let token = &self.tokens[start + offset];
-                    match token {
-                        Token::OpenParen(_) => opened_parens += 1,
-                        Token::ClosedParen(_) => {
-                            opened_parens -= 1;
-                            if opened_parens == 0 {
-                                args.push((arg_start, start + offset));
-                                break;
-                            }
-                        }
-                        Token::Eq(sp) => {
-                            return diagnostic_builder!(
-                                parse_context.input.clone(),
-                                "`=` at wrong location",
-                                *sp
-                            );
-                        }
-                        Token::VertBar(_) => {
-                            todo!()
-                        }
-                        Token::Comma(_) => {
-                            if opened_parens == 1 {
-                                args.push((arg_start, start + offset));
-                                arg_start = start + offset + 1;
-                            }
-                        }
-                        Token::Op(_, _) => {}
-                        Token::Literal(..) => {}
-                        Token::Sign(_, _) => {}
-                        Token::Other(_, _) => {}
-                        Token::Region(_, _) => panic!(),
-                        Token::None => unreachable!(),
-                    }
-                }
-            } else {
-                return diagnostic_builder!(parse_context.input.clone(), "You have to put `(` arguments `)` behind the function name to perform a proper function call");
-            }
-            let mut finished_args = vec![];
-            let end = args.last().unwrap().1 + 1;
-            for arg in args {
-                let mut result = vec![];
-                for x in (arg.0)..(arg.1) {
-                    result.push(self.tokens[x].clone());
-                }
-                finished_args.push(result);
-            }
-            if let Token::Literal(_span, func, _, kind) = pr.1 {
-                if kind == LiteralKind::CharSeq {
-                    for _ in 0..(end - start) {
-                        self.tokens.remove(start);
-                    }
-                    let result = parse_context.call_func(&func, finished_args)?;
-                    self.tokens.insert(pr.0, Token::OpenParen(pr.0));
-                    let len = result.len();
-                    for token in result.into_iter().enumerate() {
-                        self.tokens.insert(pr.0 + 1 + token.0, token.1);
-                    }
-                    self.tokens.insert(pr.0 + 1 + len, Token::ClosedParen(pr.0));
-                }
-            }
-        }
+        replace_fn_calls(possibly_replaced_funcs, &mut self.tokens, parse_context)?;
         Ok(())
     }
 
@@ -606,7 +536,7 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 }
                 OpKind::OpenParen => unreachable!(),
             },
-            Token::Literal(sp, lit, _, kind) => {
+            Token::Literal(sp, lit, sign, kind) => {
                 if kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
@@ -614,7 +544,11 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                         sp
                     );
                 } else {
-                    num_stack.push(lit.parse::<Number>().unwrap());
+                    let mut num = lit.parse::<Number>().unwrap();
+                    if sign == SignKind::Minus {
+                        num = num.neg();
+                    }
+                    num_stack.push(num);
                 }
             }
             Token::Region(_, _) => panic!(),
@@ -661,8 +595,8 @@ pub enum ActionKind {
 
 pub(crate) struct Function {
     name: String,
-    args: Vec<FunctionArg>,
-    virtual_calls: Vec<(usize, String, Vec<Vec<Token>>)>, // FIXME: Use these for calls to builtin funcs (and fix them somehow)!
+    args: usize,
+    arg_refs: Vec<(usize, usize)>, // position, arg index
     tokens: Vec<Token>,
 }
 
@@ -673,17 +607,34 @@ impl Function {
         mut tokens: Vec<Token>,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
+        // Detect arguments
+        let mut arg_refs = vec![];
+        for token in tokens.iter().enumerate() {
+            if let Token::Literal(_, lit, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq && arg_names.contains(lit) {
+                    let mut loc = usize::MAX;
+                    for arg in arg_names.iter().enumerate() {
+                        if arg.1 == lit {
+                            loc = arg.0;
+                            break;
+                        }
+                    }
+                    if loc == usize::MAX {
+                        unreachable!()
+                    }
+                    arg_refs.push((token.0, loc));
+                }
+            }
+        }
+
         // Perform constant replacement
         let mut replace_consts = vec![];
-        let mut replace_fns = vec![];
         for token in tokens.iter().enumerate().rev() {
             if let Token::Literal(span, str, _, kind) = token.1 {
                 if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
                     if parse_ctx.exists_const(str) {
                         replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
-                    } else if parse_ctx.exists_fn(str) && str != &name { // FIXME: Better detection for cyclic calls, support builtin calls!
-                        replace_fns.push(token.0);
-                    } else {
+                    } else if !parse_ctx.exists_fn(str) || str == &name {
                         return diagnostic_builder_spanned!(
                             parse_ctx.input.clone(),
                             "Not an argument or const",
@@ -702,74 +653,11 @@ impl Function {
             );
             // TODO: Detect sign correctly!
         }
-        let mut built_in = vec![];
-        for repl in replace_fns {
-            if let Token::OpenParen(_) = tokens.get(repl + 1).unwrap() {
-                tokens.remove(repl + 1);
-                let mut open = 1;
-                let mut args = vec![vec![]];
-                while open > 0 {
-                    let token = tokens.remove(repl + 1);
-                    match token {
-                        Token::OpenParen(_) => open += 1,
-                        Token::ClosedParen(_) => open -= 1,
-                        Token::Eq(_) => panic!(),
-                        Token::VertBar(_) => panic!(),
-                        Token::Comma(_) => {
-                            if open == 1 {
-                                args.push(vec![]);
-                            } else {
-                                panic!()
-                            }
-                            continue;
-                        }
-                        Token::Op(_, _) => {}, // NOOP
-                        Token::Literal(_, _, _, _) => {}, // NOOP
-                        Token::Region(_, _) => panic!(),
-                        Token::Sign(_, _) => panic!(), // FIXME: Is panicking here correct?
-                        Token::Other(_, _) => panic!(),
-                        Token::None => unreachable!(),
-                    }
-                    if open != 0 {
-                        args.last_mut().unwrap().push(token.clone());
-                    }
-                }
-                let lit = if let Token::Literal(_, lit, ..) = tokens.get(repl).unwrap() {
-                    lit
-                } else {
-                    panic!()
-                };
-                if !parse_ctx.exists_builtin_func(lit) {
-                    let mut result = parse_ctx.call_func(lit, args);
-                    tokens.remove(repl);
-                    for token in result.unwrap().into_iter().enumerate() {
-                        tokens.insert(repl + token.0, token.1);
-                    }
-                } else {
-                    built_in.push((tokens.len() - repl, lit.clone(), args));
-                }
-            } else {
-                panic!()
-            }
-        }
-        // Detect arguments
-        let mut finished_args = vec![];
-        for arg in arg_names.iter() {
-            let mut arg_positions = vec![];
-            for token in tokens.iter().enumerate() {
-                if let Token::Literal(_, str, _, kind) = token.1 {
-                    if *kind == LiteralKind::CharSeq && str == arg {
-                        arg_positions.push(token.0);
-                    }
-                }
-            }
-            finished_args.push(FunctionArg::new(arg_positions));
-        }
 
         Ok(Self {
             name,
-            args: finished_args,
-            virtual_calls: built_in,
+            args: arg_names.len(),
+            arg_refs,
             tokens,
         })
     }
@@ -779,8 +667,8 @@ impl Function {
         arg_values: Vec<Vec<Token>>,
         parse_ctx: &ParseContext,
     ) -> PResult<Vec<Token>> {
-        if self.args.len() != arg_values.len() {
-            let args_txt = if self.args.len() == 1 {
+        if self.args != arg_values.len() {
+            let args_txt = if self.args == 1 {
                 "argument"
             } else {
                 "arguments"
@@ -789,18 +677,28 @@ impl Function {
                 parse_ctx.input.clone(),
                 format!(
                     "Expected {} {}, got {}",
-                    self.args.len(),
+                    self.args,
                     args_txt,
                     arg_values.len()
                 )
             );
         }
-        let mut ret = self.tokens.clone();
+        let mut tokens = self.tokens.clone();
         let mut offset = 0;
-        for arg in self.args.iter().enumerate() {
-            offset += arg.1.build(&arg_values[arg.0], &mut ret, offset);
+        for arg in self.arg_refs.iter() {
+            offset += build_arg(&arg_values[arg.1], &mut tokens, offset, arg.0);
         }
-        Ok(ret)
+        let mut replace_fns = vec![];
+        for x in tokens.iter().enumerate() {
+            if let Token::Literal(_, lit, ..) = x.1 {
+                if parse_ctx.exists_fn(lit) && lit != &self.name {
+                    // FIXME: Better detection for cyclic calls!
+                    replace_fns.push(x.0);
+                }
+            }
+        }
+        replace_fn_calls(replace_fns, &mut tokens, parse_ctx)?;
+        Ok(tokens)
     }
 }
 
@@ -855,42 +753,83 @@ impl BuiltInFunction {
     }
 }
 
-pub(crate) struct FunctionArg {
-    pub(crate) token_positions: Vec<usize>,
+pub(crate) fn build_arg(
+    value: &Vec<Token>,
+    tokens: &mut Vec<Token>,
+    offset: usize,
+    token_pos: usize,
+) -> usize {
+    let pos = token_pos + offset;
+    tokens[pos] = Token::OpenParen(usize::MAX);
+    let end = pos + 1 + value.len();
+    for token in value.into_iter().enumerate() {
+        tokens.insert(pos + 1 + token.0, token.1.clone());
+    }
+    tokens.insert(end, Token::ClosedParen(usize::MAX));
+
+    value.len() + 1
 }
 
-impl FunctionArg {
-    pub(crate) fn new(token_positions: Vec<usize>) -> Self {
-        Self { token_positions }
-    }
-
-    pub(crate) fn build(
-        &self,
-        value: &Vec<Token>,
-        tokens: &mut Vec<Token>,
-        offset: usize,
-    ) -> usize {
-        let added_tokens = value.len() + 1;
-        for pos in self.token_positions.iter() {
-            let pos = pos + offset;
-            tokens[pos] = Token::OpenParen(usize::MAX);
-            let end = pos + 1 + value.len().clone();
-            for token in value.into_iter().enumerate() {
-                tokens.insert(pos + 1 + token.0, token.1.clone());
+fn replace_fn_calls(
+    fns: Vec<usize>,
+    tokens: &mut Vec<Token>,
+    parse_ctx: &ParseContext,
+) -> Result<(), DiagnosticBuilder> {
+    let mut offset = 0_isize;
+    for repl in fns.into_iter() {
+        let adjusted_idx = (repl as isize + offset) as usize;
+        let start = tokens.len();
+        let mut region = parse_braced_call_region(tokens, adjusted_idx)?;
+        let args = region.erase_and_provide_args(tokens);
+        let mut result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
+            if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
+                parse_ctx.call_func(&lit, args)?
+            } else {
+                panic!()
             }
-            tokens.insert(end, Token::ClosedParen(usize::MAX));
+        } else {
+            panic!("{} | {:?}", adjusted_idx, tokens.get(adjusted_idx).unwrap())
+        };
+        for token in result.into_iter().enumerate() {
+            tokens.insert(adjusted_idx + token.0, token.1);
         }
-        added_tokens
+
+        fn tokens_to_string(tokens: &Vec<Token>) -> String {
+            let mut result = String::new();
+            for token in tokens.iter() {
+                result.push_str(token.to_raw().as_str());
+            }
+            result
+        }
+
+        fn tokens_to_string_ranged(tokens: &Vec<Token>, start: usize, end: usize) -> String {
+            let mut result = String::new();
+            for token in tokens.iter().skip(start).enumerate() {
+                if token.0 >= end {
+                    break;
+                }
+                result.push_str(token.1.to_raw().as_str());
+            }
+            result
+        }
+
+        offset += tokens.len() as isize - start as isize;
     }
+    Ok(())
 }
 
-fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<Region, DiagnosticBuilder> {
+fn parse_braced_call_region(
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Result<Region, DiagnosticBuilder> {
     let mut start = usize::MAX;
     let mut end = usize::MAX;
     let mut open = 0;
     for x in tokens.iter().enumerate().skip(parse_start) {
         if let Token::OpenParen(_) = x.1 {
-            start = x.0;
+            if open == 0 {
+                start = x.0;
+            }
             open += 1;
         } else if let Token::ClosedParen(_) = x.1 {
             open -= 1;
@@ -901,11 +840,12 @@ fn parse_braced_call_region(tokens: &Vec<Token>, parse_start: usize) -> Result<R
         }
     }
     if open != 0 {
-        panic!()
+        panic!("The brace count during region parsing didn't match!") // TODO: Make this to a diagnostic builder!
     }
     Ok(Region::new(start, end, tokens))
 }
 
+#[derive(Debug)]
 struct Region {
     start: usize,
     end: usize,
@@ -925,7 +865,7 @@ impl Region {
 
     fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
         let mut inner_tokens = vec![];
-        for _ in self.start..self.end {
+        for _ in self.as_range() {
             inner_tokens.push(tokens.remove(self.start));
         }
         tokens.insert(self.start, self.to_token(inner_tokens));
@@ -933,6 +873,14 @@ impl Region {
 
     fn to_token(self, tokens: Vec<Token>) -> Token {
         Token::Region(self.inner_span, tokens)
+    }
+
+    fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
+        let mut inner = vec![];
+        for x in self.as_range() {
+            inner.push(tokens.get(x).unwrap().clone());
+        }
+        inner
     }
 
     fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
@@ -946,17 +894,17 @@ impl Region {
         }
     }
 
-    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) {
-        let braced_start = if let Token::OpenParen(_) = tokens.get(0).unwrap() {
+    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
+        let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
             1
         } else {
             0
         };
         let mut open = 0;
         let mut partitions = vec![];
-        let mut partition_start = 0;
-        for x in tokens.iter().skip(self.start).enumerate() {
-            if x.0 >= (self.end - self.start) {
+        let mut partition_start = braced_offset;
+        for x in tokens.iter().skip(self.start + braced_offset).enumerate() {
+            if x.0 >= (self.end - self.start - braced_offset) {
                 break;
             }
             if let Token::OpenParen(_) = x.1 {
@@ -964,23 +912,67 @@ impl Region {
             } else if let Token::ClosedParen(_) = x.1 {
                 open -= 1;
             } else if let Token::Comma(_) = x.1 {
-                if open == braced_start {
-                    partitions.push((partition_start, x.0 - 1));
-                    partition_start = x.0 + 1;
+                if open == 0 {
+                    partitions.push((
+                        self.start + partition_start,
+                        self.start + braced_offset + x.0,
+                    ));
+                    partition_start = braced_offset + x.0 + 1;
                 }
             }
         }
+        partitions.push((self.start + partition_start, self.end));
+        let mut resulting_partitions = vec![];
         let mut neg_offset = 0;
         for part in partitions {
             let mut partition = vec![];
+            let partition_len = part.1 - part.0;
             let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
             let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
-            for _ in 0..(part.1 - part.0) {
+            for _ in 0..partition_len {
                 partition.push(tokens.remove(part.0 - neg_offset));
             }
-            tokens.insert(part.0 - neg_offset, Token::Region(Span::new(start, end), partition));
-            neg_offset += part.1 - part.0;
+            tokens.insert(
+                part.0 - neg_offset,
+                Token::Region(Span::new(start, end), partition),
+            );
+            self.end += 1;
+            resulting_partitions.push(part.0 - neg_offset);
+            neg_offset += partition_len - 1;
+            self.end -= partition_len;
         }
+        resulting_partitions
+    }
+
+    fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
+        let mut result = vec![];
+        let arg_indices = self.partition_by_comma(tokens);
+        let args = arg_indices.len();
+        for x in arg_indices.into_iter().enumerate() {
+            let token = tokens.remove(x.1 - x.0);
+            if let Token::Region(_, tokens) = token {
+                result.push(tokens);
+            } else {
+                panic!("No argument found, but {:?}", token);
+            }
+        }
+        self.end -= args;
+        self.erase(tokens);
+        result
+    }
+
+    fn erase(self, tokens: &mut Vec<Token>) {
+        for _ in self.as_range() {
+            tokens.remove(self.start);
+        }
+    }
+
+    fn as_range(&self) -> Range<usize> {
+        self.start..(self.end + 1) // add 1 here because the token at `self.end` should be removed as well
+    }
+
+    fn len(&self) -> usize {
+        (self.end + 1) - self.start
     }
 }
 

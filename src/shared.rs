@@ -1,4 +1,6 @@
 use crate::error::Span;
+use rust_decimal::Decimal;
+use std::fmt::{Display, Formatter};
 use rust_decimal::{Decimal, MathematicalOps};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
