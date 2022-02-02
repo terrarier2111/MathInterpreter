@@ -6,6 +6,8 @@ mod lexer;
 mod parser;
 mod shared;
 mod utils;
+mod equation_simplifier;
+
 use crate::_lib::{Config, DiagnosticsConfig};
 use colored::*;
 
