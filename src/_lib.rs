@@ -8,11 +8,12 @@ use crate::shared::Number;
 
 pub struct Config {
     diagnostics: DiagnosticsConfig,
+    pub(crate) mode: Mode,
 }
 
 impl Config {
-    pub fn new(diagnostics: DiagnosticsConfig) -> Self {
-        Self { diagnostics }
+    pub fn new(diagnostics: DiagnosticsConfig, mode: Mode) -> Self {
+        Self { diagnostics, mode }
     }
 }
 
@@ -31,6 +32,13 @@ impl Default for DiagnosticsPrintingOrder {
     fn default() -> Self {
         After
     }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mode {
+    Normal,
+    Simplify,
+    Solve,
 }
 
 pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>> {

@@ -1,3 +1,4 @@
+use crate::_lib::Mode;
 use crate::lexer::Lexer;
 use crate::parser::{PResult, ParseContext, Parser};
 use crate::shared::Number;
@@ -12,7 +13,7 @@ pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>
         }
     };
     let mut parser = Parser::new(tokens);
-    let parsed = parser.parse(&mut eval_ctx.parse_ctx);
+    let parsed = parser.parse(&mut eval_ctx.parse_ctx, eval_ctx.config.mode);
     parsed
 }
 

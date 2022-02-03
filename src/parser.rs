@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::ops::{Index, Neg, Range};
 #[macro_use]
 use crate::parser::macros as mac;
+use crate::_lib::Mode;
+use crate::equation_simplifier::simplify;
 use crate::{
     diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const,
 };
@@ -58,7 +60,24 @@ impl Parser {
         Ok(())
     }
 
-    pub fn parse(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
+    pub(crate) fn parse(
+        &mut self,
+        parse_context: &mut ParseContext,
+        mode: Mode,
+    ) -> PResult<Option<Number>> {
+        match mode {
+            Mode::Normal => self.parse_normal(parse_context),
+            Mode::Simplify => {
+                self.parse_simplify(parse_context)?;
+                return Ok(None);
+            }
+            Mode::Solve => {
+                todo!()
+            }
+        }
+    }
+
+    fn parse_normal(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
         let mut eq_location = NONE;
         let mut brace_start = NONE;
         let mut brace_end = NONE;
@@ -270,6 +289,20 @@ impl Parser {
                 todo!()
             }
         }
+    }
+
+    fn parse_simplify(&self, parse_ctx: &mut ParseContext) -> PResult<()> {
+        let simplified = simplify(self.tokens.clone());
+        fn tokens_to_string(tokens: &Vec<Token>) -> String {
+            let mut result = String::new();
+            for token in tokens.iter() {
+                result.push_str(token.to_raw().as_str());
+            }
+            result
+        }
+        let str = tokens_to_string(&simplified);
+        println!("{}", str);
+        Ok(())
     }
 }
 

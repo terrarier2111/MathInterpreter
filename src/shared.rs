@@ -1,7 +1,7 @@
-use std::fmt::{Display, Formatter};
-use std::ops::Neg;
 use crate::error::Span;
 use rust_decimal::{Decimal, MathematicalOps};
+use std::fmt::{Display, Formatter};
+use std::ops::Neg;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -235,7 +235,7 @@ impl OpKind {
         (left, right)
     }
 
-    pub fn is_valid(&self, args: &(Option<Token>, Option<Token>)) -> bool {
+    pub fn is_valid<T>(&self, args: &(Option<T>, Option<T>)) -> bool {
         (self.args().has_left() == args.0.is_some())
             && (self.args().has_right() == args.1.is_some())
     }
@@ -367,7 +367,7 @@ impl TokenStream {
 
     #[inline]
     pub fn inner_idx(&self) -> usize {
-        self.idx
+        self.idx - 1
     }
 
     #[inline]
