@@ -8,9 +8,10 @@ use rust_decimal::Decimal;
 
 pub fn simplify(tokens: Vec<Token>) -> Vec<Token> {
     let mut stream = TokenStream::new(tokens);
-    let simplification_passes: [Box<dyn SimplificationPass>; 2] = [
-        Box::new(NoopSimplificationPass {}),
+    let simplification_passes: [Box<dyn SimplificationPass>; 3] = [
         Box::new(ConstOpSimplificationPass {}),
+        Box::new(NoopSimplificationPass {}),
+        Box::new(SingleBraceSimplificationPass {}),
     ];
     for s_pass in simplification_passes {
         s_pass.start_simplify(&mut stream);
@@ -97,8 +98,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                 match op_kind {
                     OpKind::Plus => {}
                     OpKind::Minus => {}
-                    OpKind::Divide => {}
-                    OpKind::Multiply | OpKind::Modulo => {
+                    OpKind::Multiply | OpKind::Modulo | OpKind::Divide => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
                         if op_kind.is_valid(&args) {
@@ -367,6 +367,29 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
     }
 }
 
+struct SingleBraceSimplificationPass {}
+
+impl SimplificationPass for SingleBraceSimplificationPass {
+    fn simplify(&self, token_stream: &mut TokenStream) {
+        let mut open_braces = vec![];
+        while let Some(token) = token_stream.next() {
+            if let Token::OpenParen(_) = token {
+                open_braces.push(token_stream.inner_idx());
+            } else if let Token::ClosedParen(_) = token {
+                let current = token_stream.inner_idx();
+                let last = open_braces.pop().unwrap();
+                let diff = current - last;
+                if diff == 2 {
+                    token_stream.inner_tokens_mut().remove(current);
+                    token_stream.inner_tokens_mut().remove(current - 2);
+                    token_stream.go_back();
+                    token_stream.go_back();
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn remove_token_or_braced_region(
     tokens: &mut Vec<Token>,
     idx: usize,
@@ -387,4 +410,12 @@ fn test() {
     assert_eq!(context.parse_ctx.get_input(), "32");
     _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "0");
+    _lib::eval(String::from("x*0"), &mut context).unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "0");
+    _lib::eval(String::from("8*4+4*3*5*0+x"), &mut context).unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "32+x");
+    _lib::eval(String::from("1/4*8*x"), &mut context).unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "2*x");
+    _lib::eval(String::from("y*(4)+2"), &mut context).unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "y*4+2");
 }

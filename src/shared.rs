@@ -213,6 +213,7 @@ impl OpKind {
             OpKind::Pow => args.0.unwrap().powd(args.1.unwrap()),
             OpKind::OpenParen => unreachable!(),
         }
+        .normalize()
     }
 
     pub fn resolve_num_args(&self, tokens: &TokenStream) -> (Option<Token>, Option<Token>) {
