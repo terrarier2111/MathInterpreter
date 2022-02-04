@@ -302,6 +302,7 @@ impl Parser {
         }
         let str = tokens_to_string(&simplified);
         println!("{}", str);
+        parse_ctx.input = str;
         Ok(())
     }
 }
@@ -338,8 +339,13 @@ impl ParseContext {
     }
 
     #[inline]
-    pub fn set_input(&mut self, input: String) {
+    pub(crate) fn set_input(&mut self, input: String) {
         self.input = input;
+    }
+
+    #[inline]
+    pub fn get_input(&self) -> &String {
+        &self.input
     }
 
     pub fn exists_const(&self, name: &String) -> bool {
@@ -851,7 +857,7 @@ fn replace_fn_calls(
     Ok(())
 }
 
-fn parse_braced_call_region(
+pub(crate) fn parse_braced_call_region(
     tokens: &Vec<Token>,
     parse_start: usize,
 ) -> Result<Region, DiagnosticBuilder> {
@@ -878,8 +884,47 @@ fn parse_braced_call_region(
     Ok(Region::new(start, end, tokens))
 }
 
+/*
+pub(crate) fn parse_braced_call_region_backwards(
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Result<Region, DiagnosticBuilder> {
+    let mut start = usize::MAX;
+    let mut end = usize::MAX;
+    let mut open = 0;
+    for x in tokens.iter().enumerate().skip(parse_start).rev() { // TODO: Make sure this works backwards as well
+        if let Token::ClosedParen(_) = x.1 {
+            if open == 0 {
+                start = x.0;
+            }
+            open += 1;
+        } else if let Token::OpenParen(_) = x.1 {
+            open -= 1;
+            if open == 0 {
+                end = x.0;
+                break;
+            }
+        }
+    }
+    if open != 0 {
+        panic!("The brace count during region parsing didn't match!") // TODO: Make this to a diagnostic builder!
+    }
+    Ok(Region::new(start, end, tokens))
+}*/
+
+pub(crate) fn parse_braced_call_immediately(
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Option<Result<Region, DiagnosticBuilder>> {
+    if let Token::OpenParen(_) = tokens.get(parse_start).unwrap() {
+        Some(parse_braced_call_region(tokens, parse_start))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug)]
-struct Region {
+pub(crate) struct Region {
     start: usize,
     end: usize,
     inner_span: Span,
@@ -896,7 +941,7 @@ impl Region {
         }
     }
 
-    fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
+    pub(crate) fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
         let mut inner_tokens = vec![];
         for _ in self.as_range() {
             inner_tokens.push(tokens.remove(self.start));
@@ -904,11 +949,11 @@ impl Region {
         tokens.insert(self.start, self.to_token(inner_tokens));
     }
 
-    fn to_token(self, tokens: Vec<Token>) -> Token {
+    pub(crate) fn to_token(self, tokens: Vec<Token>) -> Token {
         Token::Region(self.inner_span, tokens)
     }
 
-    fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
+    pub(crate) fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
         let mut inner = vec![];
         for x in self.as_range() {
             inner.push(tokens.get(x).unwrap().clone());
@@ -916,7 +961,7 @@ impl Region {
         inner
     }
 
-    fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
+    pub(crate) fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
         if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
             tokens.remove(self.start);
             self.end -= 1;
@@ -927,7 +972,7 @@ impl Region {
         }
     }
 
-    fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
+    pub(crate) fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
         let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
             1
         } else {
@@ -977,7 +1022,7 @@ impl Region {
         resulting_partitions
     }
 
-    fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
+    pub(crate) fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
         let mut result = vec![];
         let arg_indices = self.partition_by_comma(tokens);
         let args = arg_indices.len();
@@ -994,17 +1039,17 @@ impl Region {
         result
     }
 
-    fn erase(self, tokens: &mut Vec<Token>) {
+    pub(crate) fn erase(self, tokens: &mut Vec<Token>) {
         for _ in self.as_range() {
             tokens.remove(self.start);
         }
     }
 
-    fn as_range(&self) -> Range<usize> {
+    pub(crate) fn as_range(&self) -> Range<usize> {
         self.start..(self.end + 1) // add 1 here because the token at `self.end` should be removed as well
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         (self.end + 1) - self.start
     }
 }

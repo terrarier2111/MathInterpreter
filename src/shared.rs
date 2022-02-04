@@ -351,6 +351,11 @@ impl TokenStream {
     }
 
     #[inline]
+    pub fn go_back(&mut self) {
+        self.idx -= 1;
+    }
+
+    #[inline]
     pub fn reset(&mut self) {
         self.idx = 0;
     }
