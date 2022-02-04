@@ -4,7 +4,7 @@ This project is intended to serve as an interpreter for mathematical expressions
 
 ✅ = Fully implemented and supported\
 🛠️ = Partially implemented/supported but WIP\
-❌ = Not implemented and supported yet\
+❌ = Not implemented and supported yet
 ***
 
 Features are:
