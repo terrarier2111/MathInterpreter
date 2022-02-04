@@ -233,19 +233,18 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                     OpKind::Plus => {}
                     OpKind::Minus => {}
                     OpKind::Divide => {
-                        if let Some(token) = args.1 {
+                        if let Some(token) = args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.is_zero() {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
-                                    token_stream.inner_tokens_mut().remove(idx); // remove 1
+                                    token_stream.inner_tokens_mut().remove(idx); // remove num
                                     token_stream.go_back();
+                                    continue;
                                 }
                             }
                         }
-                    }
-                    OpKind::Multiply => {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -255,15 +254,11 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     token_stream.inner_tokens_mut().remove(idx); // remove 1
                                     token_stream.go_back();
                                     continue;
-                                } /* else if num.is_zero() {
-                                      let idx = token_stream.inner_idx();
-                                      token_stream.inner_tokens_mut().remove(idx); // remove Op
-                                      token_stream.inner_tokens_mut().remove(idx - 1); // remove num // FIXME: Handle (reversed) braces!
-                                      token_stream.go_back();
-                                      continue;
-                                  }*/
+                                }
                             }
                         }
+                    }
+                    OpKind::Multiply => {
                         if let Some(token) = args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -272,6 +267,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx - 1); // remove 1
                                     token_stream.go_back();
+                                    continue;
                                 } else if num.is_zero() {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
@@ -280,6 +276,28 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                         idx,
                                     ); // remove num
                                     token_stream.go_back();
+                                    continue;
+                                }
+                            }
+                        }
+                        if let Some(token) = args.1 {
+                            let num = shared::token_to_num(&token);
+                            if let Some(num) = num {
+                                if num.is_one() {
+                                    let idx = token_stream.inner_idx();
+                                    token_stream.inner_tokens_mut().remove(idx); // remove Op
+                                    token_stream.inner_tokens_mut().remove(idx); // remove 1
+                                    token_stream.go_back();
+                                    continue;
+                                } else if num.is_zero() {
+                                    let idx = token_stream.inner_idx();
+                                    token_stream.inner_tokens_mut().remove(idx); // remove Op
+                                    remove_token_or_braced_region(
+                                        token_stream.inner_tokens_mut(),
+                                        idx - 1,
+                                    ); // remove num
+                                    token_stream.go_back();
+                                    continue;
                                 }
                             }
                         }
@@ -320,6 +338,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx); // remove 0
                                     token_stream.go_back();
+                                    continue;
                                 }
                             }
                         }
@@ -366,6 +385,6 @@ fn test() {
     let mut context = _lib::new_eval_ctx(Config::new(DiagnosticsConfig::default(), Mode::Simplify));
     _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "32");
-    _lib::eval(String::from("0+0*(8+3)"), &mut context).unwrap();
+    _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "0");
 }

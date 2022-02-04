@@ -282,7 +282,7 @@ impl Parser {
 
                 // Perform the evaluation of the input statement
                 let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
-                let result = eval_rpn(rpn, parse_context)?;
+                let result = eval_rpn(rpn, parse_context)?.normalize();
                 Ok(Some(result))
             }
             Action::DefineRecFunc(_, _, _) => {
@@ -335,6 +335,10 @@ impl ParseContext {
         register_builtin_func!(ret, "sqrt", 1, |nums| nums[0].sqrt().unwrap());
         register_builtin_func!(ret, "max", 2, |nums| nums[0].max(nums[1]));
         register_builtin_func!(ret, "min", 2, |nums| nums[0].min(nums[1]));
+        register_builtin_func!(ret, "deg", 1, |nums| nums[0]
+            * (Number::from(180) / Number::PI));
+        register_builtin_func!(ret, "rad", 1, |nums| nums[0]
+            * (Number::PI / Number::from(180)));
         ret
     }
 
@@ -884,33 +888,40 @@ pub(crate) fn parse_braced_call_region(
     Ok(Region::new(start, end, tokens))
 }
 
-/*
 pub(crate) fn parse_braced_call_region_backwards(
     tokens: &Vec<Token>,
     parse_start: usize,
 ) -> Result<Region, DiagnosticBuilder> {
     let mut start = usize::MAX;
     let mut end = usize::MAX;
-    let mut open = 0;
-    for x in tokens.iter().enumerate().skip(parse_start).rev() { // TODO: Make sure this works backwards as well
+    let mut closed = 0;
+    for x in tokens
+        .iter()
+        .enumerate()
+        .rev()
+        .skip(tokens.len() - parse_start - 1)
+    {
         if let Token::ClosedParen(_) = x.1 {
-            if open == 0 {
+            if closed == 0 {
                 start = x.0;
             }
-            open += 1;
+            closed += 1;
         } else if let Token::OpenParen(_) = x.1 {
-            open -= 1;
-            if open == 0 {
+            closed -= 1;
+            if closed == 0 {
                 end = x.0;
                 break;
             }
         }
     }
-    if open != 0 {
-        panic!("The brace count during region parsing didn't match!") // TODO: Make this to a diagnostic builder!
+    if closed != 0 {
+        panic!(
+            "The brace count during region parsing didn't match! {}",
+            closed
+        ) // TODO: Make this to a diagnostic builder!
     }
-    Ok(Region::new(start, end, tokens))
-}*/
+    Ok(Region::new(end, start, tokens))
+}
 
 pub(crate) fn parse_braced_call_immediately(
     tokens: &Vec<Token>,
@@ -918,6 +929,8 @@ pub(crate) fn parse_braced_call_immediately(
 ) -> Option<Result<Region, DiagnosticBuilder>> {
     if let Token::OpenParen(_) = tokens.get(parse_start).unwrap() {
         Some(parse_braced_call_region(tokens, parse_start))
+    } else if let Token::ClosedParen(_) = tokens.get(parse_start).unwrap() {
+        Some(parse_braced_call_region_backwards(tokens, parse_start))
     } else {
         None
     }
