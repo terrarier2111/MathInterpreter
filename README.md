@@ -19,5 +19,5 @@ Features are:
 🛠️ | Proper error propagation and providing suggestions\
 🛠️ | Validation of input\
 🛠️ | Api\
-❌ | Equation solving/simplification\
+🛠️ | Equation solving/simplification\
 ❌ | Multithreading support for expensive calculations
