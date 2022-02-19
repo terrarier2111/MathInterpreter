@@ -1,7 +1,7 @@
-use crate::diagnostic_builder;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
 use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenKind};
+use crate::{diagnostic_builder, ANSMode};
 
 pub(crate) struct Lexer {}
 
@@ -11,7 +11,10 @@ impl Lexer {
     }
 
     // TODO: Improve dot validation!
-    pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
+    pub fn lex(
+        &self,
+        input: String, /*, ans_mode: ANSMode*/
+    ) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for c in input.chars().enumerate() {
@@ -180,7 +183,15 @@ impl Lexer {
                             _ => Some(Token::Op(c.0, sign.1)),
                         }
                     } else {
-                        Some(Token::Sign(c.0, sign.0))
+                        // This has to be an Op instead of a Sign because of abs modes.
+                        Some(Token::Op(c.0, sign.1))
+                        /*
+                          if ans_mode == ANSMode::Always {
+                            Some(Token::Op(c.0, sign.1))
+                        } else {
+                            Some(Token::Sign(c.0, sign.0))
+                        }
+                        */
                     }
                 }
                 _ => {
@@ -256,9 +267,10 @@ impl Lexer {
             }
         }
         if let Some(mut token) = token_type.take() {
-            if let Token::Literal(_, buffer, sign, alphabetic) = &mut token {
+            if let Token::Literal(_, buffer, sign, kind) = &mut token {
                 if sign == &mut SignKind::Minus {
-                    buffer.insert(0, '-');
+                    // FIXME: This only works for `LiteralKind::Number`, fix it for other literal kinds!
+                    buffer.insert(0, '-'); // FIXME: Make a universal choice about when to insert the sign to numbers and how to always have correct sign kinds
                 }
             }
             tokens.push(token);

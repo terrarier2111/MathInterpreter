@@ -19,6 +19,7 @@ pub fn input(text: String) -> std::io::Result<String> {
     Ok(input)
 }
 
+#[macro_export]
 macro_rules! pluralize {
     ($num: expr) => {
         if $num > 1 {

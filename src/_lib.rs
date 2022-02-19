@@ -3,17 +3,22 @@
 use crate::__lib;
 use crate::__lib::EvalContext;
 use crate::_lib::DiagnosticsPrintingOrder::After;
-use crate::parser::PResult;
+use crate::parser::{PResult, ParseResult};
 use crate::shared::Number;
 
 pub struct Config {
     diagnostics: DiagnosticsConfig,
+    pub(crate) ans_mode: ANSMode,
     pub(crate) mode: Mode,
 }
 
 impl Config {
-    pub fn new(diagnostics: DiagnosticsConfig, mode: Mode) -> Self {
-        Self { diagnostics, mode }
+    pub fn new(diagnostics: DiagnosticsConfig, ans_mode: ANSMode, mode: Mode) -> Self {
+        Self {
+            diagnostics,
+            ans_mode,
+            mode,
+        }
     }
 }
 
@@ -35,13 +40,22 @@ impl Default for DiagnosticsPrintingOrder {
 }
 
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum Mode {
     Normal,
     Simplify,
     Solve,
 }
 
-pub fn eval(input: String, eval_ctx: &mut EvalContext) -> PResult<Option<Number>> {
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ANSMode {
+    Never,
+    WhenImplicit,
+    Always,
+}
+
+pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Number>> {
     eval_ctx.parse_ctx.set_input(input.clone());
     __lib::eval(input, eval_ctx)
 }

@@ -1,56 +1,61 @@
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenStream};
-use crate::{_lib, parser, shared, Config, DiagnosticsConfig, Mode};
+use crate::{_lib, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
 use rust_decimal::prelude::One;
 use rust_decimal::Decimal;
 
 // const SIMPLIFICATION_PASSES: [Box<dyn SimplificationPass>; 2] = [Box::new(ConstOpSimplificationPass {}), Box::new(NoopSimplificationPass {})];
 
-pub fn simplify(tokens: Vec<Token>) -> Vec<Token> {
-    let mut stream = TokenStream::new(tokens);
+// Unfortunately we can't perform certain simplifications if we can't prove that they are mathematically correct, like for example:
+// 0^x | This can't be simplified because we would need to prove that x != 0
+// x^0 | This can't be simplified because we would need to prove that x != 0
+// 0/x | This can't be simplified because we would need to prove that x != 0
+pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, DiagnosticBuilder> {
+    let mut stream = TokenStream::new(input, tokens);
     let simplification_passes: [Box<dyn SimplificationPass>; 3] = [
         Box::new(ConstOpSimplificationPass {}),
         Box::new(NoopSimplificationPass {}),
         Box::new(SingleBraceSimplificationPass {}),
     ];
     for s_pass in simplification_passes {
-        s_pass.start_simplify(&mut stream);
+        s_pass.start_simplify(&mut stream)?;
     }
-    stream.to_tokens()
+    Ok(stream.to_tokens())
 }
 
 trait SimplificationPass {
     #[inline]
-    fn start_simplify(&self, token_stream: &mut TokenStream) {
-        self.simplify(token_stream);
+    fn start_simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
+        let result = self.simplify(token_stream);
         token_stream.reset();
+        result
     }
 
-    fn simplify(&self, token_stream: &mut TokenStream);
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder>;
 }
 
 trait PrioritizedSimplificationPass: SimplificationPass {
-    fn simplify3(&self, token_stream: &mut TokenStream);
+    fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder>;
 
-    fn simplify2(&self, token_stream: &mut TokenStream);
+    fn simplify2(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder>;
 
-    fn simplify1(&self, token_stream: &mut TokenStream);
+    fn simplify1(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder>;
 }
 
 impl<T: PrioritizedSimplificationPass> SimplificationPass for T {
-    fn simplify(&self, token_stream: &mut TokenStream) {
-        self.simplify3(token_stream);
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
+        self.simplify3(token_stream)?;
         token_stream.reset();
-        self.simplify2(token_stream);
+        self.simplify2(token_stream)?;
         token_stream.reset();
-        self.simplify1(token_stream);
+        self.simplify1(token_stream)
     }
 }
 
 struct ConstOpSimplificationPass {}
 
 impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
-    fn simplify3(&self, token_stream: &mut TokenStream) {
+    fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
@@ -90,9 +95,10 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 
-    fn simplify2(&self, token_stream: &mut TokenStream) {
+    fn simplify2(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
@@ -130,9 +136,10 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 
-    fn simplify1(&self, token_stream: &mut TokenStream) {
+    fn simplify1(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
@@ -171,13 +178,14 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 }
 
 struct NoopSimplificationPass {}
 
 impl PrioritizedSimplificationPass for NoopSimplificationPass {
-    fn simplify3(&self, token_stream: &mut TokenStream) {
+    fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         // TODO: Expand this logic a bit to simplify more things!
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
@@ -210,9 +218,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     remove_token_or_braced_region(
+                                        token_stream.input.clone(),
                                         token_stream.inner_tokens_mut(),
                                         idx,
-                                    ); // remove exponent
+                                    )?; // remove exponent
                                     token_stream.go_back();
                                 }
                             }
@@ -222,9 +231,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 
-    fn simplify2(&self, token_stream: &mut TokenStream) {
+    fn simplify2(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         // TODO: Expand this logic a bit to simplify more things!
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
@@ -233,18 +243,6 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                     OpKind::Plus => {}
                     OpKind::Minus => {}
                     OpKind::Divide => {
-                        if let Some(token) = args.0 {
-                            let num = shared::token_to_num(&token);
-                            if let Some(num) = num {
-                                if num.is_zero() {
-                                    let idx = token_stream.inner_idx();
-                                    token_stream.inner_tokens_mut().remove(idx); // remove Op
-                                    token_stream.inner_tokens_mut().remove(idx); // remove num
-                                    token_stream.go_back();
-                                    continue;
-                                }
-                            }
-                        }
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -272,9 +270,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     remove_token_or_braced_region(
+                                        token_stream.input.clone(),
                                         token_stream.inner_tokens_mut(),
                                         idx,
-                                    ); // remove num
+                                    )?; // remove num
                                     token_stream.go_back();
                                     continue;
                                 }
@@ -293,9 +292,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     remove_token_or_braced_region(
+                                        token_stream.input.clone(),
                                         token_stream.inner_tokens_mut(),
                                         idx - 1,
-                                    ); // remove num
+                                    )?; // remove num
                                     token_stream.go_back();
                                     continue;
                                 }
@@ -308,9 +308,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 
-    fn simplify1(&self, token_stream: &mut TokenStream) {
+    fn simplify1(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         // TODO: Expand this logic a bit to simplify more things!
         // TODO: Reduce code duplication!
         while let Some(token) = token_stream.next() {
@@ -364,14 +365,16 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                 }
             }
         }
+        Ok(())
     }
 }
 
 struct SingleBraceSimplificationPass {}
 
 impl SimplificationPass for SingleBraceSimplificationPass {
-    fn simplify(&self, token_stream: &mut TokenStream) {
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         let mut open_braces = vec![];
+        let mut finished_braces = vec![];
         while let Some(token) = token_stream.next() {
             if let Token::OpenParen(_) = token {
                 open_braces.push(token_stream.inner_idx());
@@ -384,17 +387,68 @@ impl SimplificationPass for SingleBraceSimplificationPass {
                     token_stream.inner_tokens_mut().remove(current - 2);
                     token_stream.go_back();
                     token_stream.go_back();
+                } else {
+                    finished_braces.push((last, current));
                 }
             }
         }
+        // 4+(((x+4)))+((4*7+7))*3 // FIXME: Fix this!
+        let mut removed = vec![];
+        let mut last = &(usize::MAX, usize::MAX);
+        for brace in finished_braces.iter() {
+            println!("iterating braces!");
+            if (brace.0.max(last.0) - brace.0.min(last.0)) == 1
+                && (brace.1.max(last.1) - brace.1.min(last.1)) == 1
+            {
+                println!("removiiing!");
+                /*finished_braces.remove(brace_idx);
+                for prev in finished_braces.iter_mut() {
+                    if prev.1 > brace.0 {
+                        prev.1 -= 1;
+                    }
+                    if prev.0 > brace.0 {
+                        prev.0 -= 1;
+                    }
+                    if prev.1 > brace.1 {
+                        prev.1 -= 1;
+                    }
+                    if prev.0 > brace.1 {
+                        prev.0 -= 1;
+                    }
+                }*/
+                removed.push(brace.clone());
+            }
+            last = brace;
+        }
+        while !removed.is_empty() {
+            let brace = removed.remove(0);
+            for prev in finished_braces.iter_mut() {
+                if prev.1 > brace.0 {
+                    prev.1 -= 1;
+                }
+                if prev.0 > brace.0 {
+                    prev.0 -= 1;
+                }
+                if prev.1 > brace.1 {
+                    prev.1 -= 1;
+                }
+                if prev.0 > brace.1 {
+                    prev.0 -= 1;
+                }
+            }
+            token_stream.inner_tokens_mut().remove(brace.1);
+            token_stream.inner_tokens_mut().remove(brace.0);
+        }
+        Ok(())
     }
 }
 
 pub(crate) fn remove_token_or_braced_region(
+    input: String, // FIXME: Can we just pass a reference here?
     tokens: &mut Vec<Token>,
     idx: usize,
 ) -> Result<(), DiagnosticBuilder> {
-    let region = parser::parse_braced_call_immediately(tokens, idx);
+    let region = parser::parse_braced_call_immediately(&input, tokens, idx);
     if let Some(region) = region {
         region?.erase(tokens);
     } else {
@@ -405,7 +459,11 @@ pub(crate) fn remove_token_or_braced_region(
 
 #[test]
 fn test() {
-    let mut context = _lib::new_eval_ctx(Config::new(DiagnosticsConfig::default(), Mode::Simplify));
+    let mut context = _lib::new_eval_ctx(Config::new(
+        DiagnosticsConfig::default(),
+        ANSMode::Never,
+        Mode::Simplify,
+    ));
     _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "32");
     _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context).unwrap();
@@ -418,4 +476,6 @@ fn test() {
     assert_eq!(context.parse_ctx.get_input(), "2*x");
     _lib::eval(String::from("y*(4)+2"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "y*4+2");
+    // _lib::eval(String::from("0/(5*3+4)"), &mut context).unwrap(); // TODO: Fix this
+    // assert_eq!(context.parse_ctx.get_input(), "0");
 }

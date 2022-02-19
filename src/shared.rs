@@ -167,6 +167,18 @@ pub enum OpKind {
 }
 
 impl OpKind {
+    pub fn to_char(&self) -> char {
+        match self {
+            OpKind::Plus => '+',
+            OpKind::Minus => '-',
+            OpKind::Divide => '/',
+            OpKind::Multiply => '*',
+            OpKind::Modulo => '%',
+            OpKind::Pow => '^',
+            OpKind::OpenParen => unimplemented!(),
+        }
+    }
+
     pub fn precedence(&self) -> u8 {
         match self {
             OpKind::Plus => 2,
@@ -271,6 +283,7 @@ impl ArgsKind {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(u8)]
 pub enum SignKind {
     Plus,
     Minus,
@@ -294,13 +307,18 @@ pub enum Associativity {
 }
 
 pub struct TokenStream {
+    pub(crate) input: String,
     tokens: Vec<Token>,
     idx: usize,
 }
 
 impl TokenStream {
-    pub const fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, idx: 0 }
+    pub const fn new(input: String, tokens: Vec<Token>) -> Self {
+        Self {
+            input,
+            tokens,
+            idx: 0,
+        }
     }
 
     pub fn next(&mut self) -> Option<&Token> {

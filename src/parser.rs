@@ -5,13 +5,15 @@ use crate::shared::{
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::MathematicalOps;
 use std::collections::HashMap;
+use std::mem::transmute;
 use std::ops::{Index, Neg, Range};
 #[macro_use]
 use crate::parser::macros as mac;
 use crate::_lib::Mode;
 use crate::equation_simplifier::simplify;
 use crate::{
-    diagnostic_builder, diagnostic_builder_spanned, register_builtin_func, register_const,
+    diagnostic_builder, diagnostic_builder_spanned, pluralize, register_builtin_func,
+    register_const, ANSMode,
 };
 
 const NONE: usize = usize::MAX;
@@ -63,13 +65,17 @@ impl Parser {
     pub(crate) fn parse(
         &mut self,
         parse_context: &mut ParseContext,
+        ans_mode: ANSMode,
         mode: Mode,
-    ) -> PResult<Option<Number>> {
+    ) -> ParseResult<Option<Number>> {
         match mode {
-            Mode::Normal => self.parse_normal(parse_context),
+            Mode::Normal => self.parse_normal(parse_context, ans_mode),
             Mode::Simplify => {
-                self.parse_simplify(parse_context)?;
-                return Ok(None);
+                match self.parse_simplify(parse_context).0 {
+                    Ok(_) => {}
+                    Err(err) => return ParseResult::new_err(err),
+                };
+                return ParseResult::default();
             }
             Mode::Solve => {
                 todo!()
@@ -77,7 +83,11 @@ impl Parser {
         }
     }
 
-    fn parse_normal(&mut self, parse_context: &mut ParseContext) -> PResult<Option<Number>> {
+    fn parse_normal(
+        &mut self,
+        parse_context: &mut ParseContext,
+        ans_mode: ANSMode,
+    ) -> ParseResult<Option<Number>> {
         let mut eq_location = NONE;
         let mut brace_start = NONE;
         let mut brace_end = NONE;
@@ -99,11 +109,11 @@ impl Parser {
                     Token::Literal(..) => {}
                     Token::Sign(_, _) => {}
                     Token::Other(sp, raw) => {
-                        return diagnostic_builder!(
+                        return ParseResult(diagnostic_builder!(
                             parse_context.input.clone(),
                             format!("Unexpected token `{}`", raw),
                             *sp
-                        )
+                        ))
                     }
                     Token::VertBar(_) => {}
                     Token::Region(_, _) => panic!(),
@@ -140,11 +150,11 @@ impl Parser {
                     Token::Eq(sp) => {
                         if token.0 != eq_location {
                             if bar == NONE {
-                                return diagnostic_builder!(
+                                return ParseResult(diagnostic_builder!(
                                     parse_context.input.clone(),
                                     "Found second `=` before `|`",
                                     *sp
-                                );
+                                ));
                             }
                             rec_eq = token.0;
                             break;
@@ -152,15 +162,17 @@ impl Parser {
                     }
                     Token::VertBar(sp) => {
                         if bar != NONE {
-                            return diagnostic_builder!(
-                                parse_context.input.clone(),
-                                "Found second `|`",
-                                *sp
-                            )
-                            .map_err(|mut x| {
-                                x.note("only one `|` is allowed".to_string());
-                                x
-                            });
+                            return ParseResult(
+                                diagnostic_builder!(
+                                    parse_context.input.clone(),
+                                    "Found second `|`",
+                                    *sp
+                                )
+                                .map_err(|mut x| {
+                                    x.note("only one `|` is allowed".to_string());
+                                    x
+                                }),
+                            );
                         }
                         bar = token.0;
                     }
@@ -169,11 +181,11 @@ impl Parser {
                     Token::Literal(..) => {}
                     Token::Sign(_, _) => {}
                     Token::Other(sp, raw) => {
-                        return diagnostic_builder!(
+                        return ParseResult(diagnostic_builder!(
                             parse_context.input.clone(),
                             format!("Unexpected token `{}`", raw),
                             *sp
-                        )
+                        ))
                     }
                     Token::Region(_, _) => panic!(),
                     Token::None => unreachable!(),
@@ -184,26 +196,26 @@ impl Parser {
         if eq_location != NONE {
             if brace_start != NONE {
                 if brace_end == NONE {
-                    return diagnostic_builder_spanned!(
+                    return ParseResult(diagnostic_builder_spanned!(
                         parse_context.input.clone(),
                         "`(` at wrong location",
                         self.tokens.get(brace_start).unwrap().span()
-                    );
+                    ));
                 }
                 let func_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
                     if kind == LiteralKind::CharSeq {
                         x
                     } else {
-                        return diagnostic_builder!(
+                        return ParseResult(diagnostic_builder!(
                             parse_context.input.clone(),
                             "No function name was given"
-                        );
+                        ));
                     }
                 } else {
-                    return diagnostic_builder!(
+                    return ParseResult(diagnostic_builder!(
                         parse_context.input.clone(),
                         "No function name was given"
-                    );
+                    ));
                 };
                 let mut arguments = vec![];
                 for x in 0..eq_location {
@@ -221,35 +233,38 @@ impl Parser {
                 {
                     // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
                     // FIXME: Is this check actually required?
-                    return diagnostic_builder!(
+                    return ParseResult(diagnostic_builder!(
                         parse_context.input.clone(),
                         "`=` at wrong location"
-                    );
+                    ));
                 }
                 action = Action::DefineFunc(func_name, arguments);
             } else if brace_end != NONE {
-                return diagnostic_builder!(parse_context.input.clone(), "`)` at wrong location");
+                return ParseResult(diagnostic_builder!(
+                    parse_context.input.clone(),
+                    "`)` at wrong location"
+                ));
             } else {
                 let var_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
                     if kind == LiteralKind::CharSeq {
                         x
                     } else {
-                        return diagnostic_builder!(
+                        return ParseResult(diagnostic_builder!(
                             parse_context.input.clone(),
                             "No function name was given"
-                        );
+                        ));
                     }
                 } else {
-                    return diagnostic_builder!(
+                    return ParseResult(diagnostic_builder!(
                         parse_context.input.clone(),
                         "No function name was given"
-                    );
+                    ));
                 };
                 if eq_location != 1 {
-                    return diagnostic_builder!(
+                    return ParseResult(diagnostic_builder!(
                         parse_context.input.clone(),
                         "`=` at wrong location"
-                    );
+                    ));
                 }
                 action = Action::DefineVar(var_name);
             }
@@ -258,32 +273,176 @@ impl Parser {
         match self.action.clone() {
             Action::DefineVar(name) => {
                 // Perform variable and function lookup and evaluation
-                self.handle_vars_and_fn_calls(parse_context)?;
+                match self.handle_vars_and_fn_calls(parse_context) {
+                    Ok(_) => {}
+                    Err(err) => return ParseResult::new_err(err),
+                };
 
                 // Perform the evaluation of the variable definition
-                let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
-                let result = eval_rpn(rpn, parse_context)?;
-                parse_context.register_var(&name, result)?;
-                Ok(Some(result))
+                let rpn = match shunting_yard(self.tokens.clone(), parse_context) {
+                    Ok(val) => val,
+                    Err(err) => return ParseResult::new_err(err),
+                };
+                let result = match eval_rpn(rpn, parse_context) {
+                    Ok(val) => val,
+                    Err(err) => return ParseResult::new_err(err),
+                };
+                match parse_context.register_var(&name, result) {
+                    Ok(_) => {}
+                    Err(err) => return ParseResult::new_err(err),
+                }
+                ParseResult(Ok((Some(result), None)))
             }
             Action::DefineFunc(name, args) => {
-                let func = Function::new(
+                let func = match Function::new(
                     name.clone(),
                     args.clone(),
                     self.tokens.clone(),
                     parse_context,
-                )?;
+                ) {
+                    Ok(val) => val,
+                    Err(err) => return ParseResult::new_err(err),
+                };
                 parse_context.register_func(func);
-                Ok(None)
+                ParseResult::default()
             }
             Action::Eval => {
+                let mut diagnostic_builder = DiagnosticBuilder::new(parse_context.input.clone());
+                // TODO: Try cleaning this ans stuff up a bit!
+                if !self.tokens.is_empty() && TokenKind::Op == self.tokens.get(0).unwrap().kind() {
+                    if let Some(last) = parse_context.last_result {
+                        match ans_mode {
+                            ANSMode::WhenImplicit => {
+                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap().clone() {
+                                    if kind != OpKind::Plus && kind != OpKind::Minus {
+                                        self.tokens.insert(
+                                            0,
+                                            Token::Literal(
+                                                Span::NONE,
+                                                last.to_string(),
+                                                SignKind::Plus,
+                                                LiteralKind::Number,
+                                            ),
+                                        );
+                                    } else {
+                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
+                                        self.tokens.remove(0);
+                                        let mut following = self.tokens.get_mut(0).unwrap();
+                                        if let Token::Literal(_, buffer, sign, lit_kind) = following
+                                        {
+                                            if sign == &SignKind::Minus
+                                                || (lit_kind == &LiteralKind::Number
+                                                    && buffer.chars().next().unwrap() == '-')
+                                            {
+                                                // FIXME: Detect + sign as well
+                                                panic!("Too many signs!") // TODO: Provide proper diagnostics!
+                                            }
+                                            *sign = SignKind::Minus;
+                                        }
+                                    }
+                                }
+                            }
+                            ANSMode::Always => {
+                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap() {
+                                    if kind == &OpKind::Plus || kind == &OpKind::Minus {
+                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
+                                    }
+                                    self.tokens.insert(
+                                        0,
+                                        Token::Literal(
+                                            Span::NONE,
+                                            last.to_string(),
+                                            SignKind::Plus,
+                                            LiteralKind::Number,
+                                        ),
+                                    );
+                                }
+                            }
+                            ANSMode::Never => {
+                                self.tokens.remove(0);
+                                let mut following = self.tokens.get_mut(0).unwrap();
+                                if let Token::Literal(_, buffer, sign, lit_kind) = following {
+                                    if sign == &SignKind::Minus
+                                        || (lit_kind == &LiteralKind::Number
+                                            && buffer.chars().next().unwrap() == '-')
+                                    {
+                                        // FIXME: Detect + sign as well
+                                        panic!("Too many signs!") // TODO: Provide proper diagnostics!
+                                    }
+                                    *sign = SignKind::Minus;
+                                }
+                            }
+                        }
+                    } else {
+                        match ans_mode {
+                            ANSMode::WhenImplicit => {
+                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap().clone() {
+                                    if kind != OpKind::Plus && kind != OpKind::Minus {
+                                        return ParseResult(diagnostic_builder!(
+                                            parse_context.input.clone(),
+                                            "There is no previous result on which we could operate on!",
+                                            0
+                                        ));
+                                    } else {
+                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
+                                        self.tokens.remove(0);
+                                        let mut following = self.tokens.get_mut(0).unwrap();
+                                        if let Token::Literal(_, buffer, sign, lit_kind) = following
+                                        {
+                                            if sign == &SignKind::Minus
+                                                || (lit_kind == &LiteralKind::Number
+                                                    && buffer.chars().next().unwrap() == '-')
+                                            {
+                                                // FIXME: Detect + sign as well
+                                                panic!("Too many signs!") // TODO: Provide proper diagnostics!
+                                            }
+                                            *sign = SignKind::Minus;
+                                        }
+                                    }
+                                }
+                            }
+                            ANSMode::Always => {
+                                return ParseResult(diagnostic_builder!(
+                                    parse_context.input.clone(),
+                                    "There is no previous result on which we could operate on!",
+                                    0
+                                ));
+                            }
+                            ANSMode::Never => {
+                                self.tokens.remove(0);
+                                let mut following = self.tokens.get_mut(0).unwrap();
+                                if let Token::Literal(_, buffer, sign, lit_kind) = following {
+                                    if sign == &SignKind::Minus
+                                        || (lit_kind == &LiteralKind::Number
+                                            && buffer.chars().next().unwrap() == '-')
+                                    {
+                                        // FIXME: Detect + sign as well
+                                        panic!("Too many signs!") // TODO: Provide proper diagnostics!
+                                    }
+                                    *sign = SignKind::Minus;
+                                }
+                            }
+                        }
+                    }
+                }
                 // Perform variable and function lookup and evaluation
-                self.handle_vars_and_fn_calls(parse_context)?;
+                match self.handle_vars_and_fn_calls(parse_context) {
+                    Ok(_) => {}
+                    Err(err) => return ParseResult::new_err(err),
+                }
 
                 // Perform the evaluation of the input statement
-                let rpn = shunting_yard(self.tokens.clone(), parse_context)?;
-                let result = eval_rpn(rpn, parse_context)?.normalize();
-                Ok(Some(result))
+                let rpn = match shunting_yard(self.tokens.clone(), parse_context) {
+                    Ok(val) => val,
+                    Err(err) => return ParseResult::new_err(err),
+                };
+                let result = match eval_rpn(rpn, parse_context) {
+                    Ok(val) => val,
+                    Err(err) => return ParseResult::new_err(err),
+                }
+                .normalize();
+                parse_context.last_result = Some(result.clone());
+                ParseResult(Ok((Some(result), None)))
             }
             Action::DefineRecFunc(_, _, _) => {
                 todo!()
@@ -291,8 +450,11 @@ impl Parser {
         }
     }
 
-    fn parse_simplify(&self, parse_ctx: &mut ParseContext) -> PResult<()> {
-        let simplified = simplify(self.tokens.clone());
+    fn parse_simplify(&self, parse_ctx: &mut ParseContext) -> ParseResult<()> {
+        let simplified = match simplify(parse_ctx.input.clone(), self.tokens.clone()) {
+            Ok(val) => val,
+            Err(err) => return ParseResult::new_err(err),
+        };
         fn tokens_to_string(tokens: &Vec<Token>) -> String {
             let mut result = String::new();
             for token in tokens.iter() {
@@ -300,15 +462,16 @@ impl Parser {
             }
             result
         }
-        let str = tokens_to_string(&simplified);
-        println!("{}", str);
-        parse_ctx.input = str;
-        Ok(())
+        let result = tokens_to_string(&simplified);
+        println!("{}", result);
+        parse_ctx.input = result;
+        ParseResult(Ok(((), None)))
     }
 }
 
 pub(crate) struct ParseContext {
     input: String,
+    last_result: Option<Number>,
     vars: HashMap<String, (bool, Number)>,
     funcs: HashMap<String, Function>,
     builtin_funcs: HashMap<String, BuiltInFunction>,
@@ -318,6 +481,7 @@ impl ParseContext {
     pub fn new() -> Self {
         let mut ret = Self {
             input: String::new(),
+            last_result: None,
             vars: Default::default(),
             funcs: Default::default(),
             builtin_funcs: Default::default(),
@@ -766,15 +930,16 @@ impl BuiltInFunction {
         parse_ctx: &ParseContext,
     ) -> PResult<Vec<Token>> {
         if self.arg_count != arg_values.len() {
-            let args_txt = if self.arg_count == 1 {
+            /*let args_txt = if self.arg_count == 1 {
                 "argument"
             } else {
                 "arguments"
-            };
+            };*/
+            let args_txt = pluralize!(self.arg_count);
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
                 format!(
-                    "Expected {} {}, got {}",
+                    "Expected {} argument{}, got {}",
                     self.arg_count,
                     args_txt,
                     arg_values.len()
@@ -822,12 +987,13 @@ fn replace_fn_calls(
     for repl in fns.into_iter() {
         let adjusted_idx = (repl as isize + offset) as usize;
         let start = tokens.len();
-        let mut region = parse_braced_call_region(tokens, adjusted_idx)?;
+        let mut region = parse_braced_call_region(&parse_ctx.input, tokens, adjusted_idx)?;
         let args = region.erase_and_provide_args(tokens);
         let mut result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
             if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
                 parse_ctx.call_func(&lit, args)?
             } else {
+                // This should never happen
                 panic!()
             }
         } else {
@@ -862,6 +1028,7 @@ fn replace_fn_calls(
 }
 
 pub(crate) fn parse_braced_call_region(
+    input: &String,
     tokens: &Vec<Token>,
     parse_start: usize,
 ) -> Result<Region, DiagnosticBuilder> {
@@ -883,12 +1050,16 @@ pub(crate) fn parse_braced_call_region(
         }
     }
     if open != 0 {
-        panic!("The brace count during region parsing didn't match!") // TODO: Make this to a diagnostic builder!
+        return diagnostic_builder!(
+            input.clone(),
+            "The brace count during region parsing didn't match!"
+        );
     }
     Ok(Region::new(start, end, tokens))
 }
 
 pub(crate) fn parse_braced_call_region_backwards(
+    input: &String,
     tokens: &Vec<Token>,
     parse_start: usize,
 ) -> Result<Region, DiagnosticBuilder> {
@@ -915,22 +1086,30 @@ pub(crate) fn parse_braced_call_region_backwards(
         }
     }
     if closed != 0 {
-        panic!(
-            "The brace count during region parsing didn't match! {}",
-            closed
-        ) // TODO: Make this to a diagnostic builder!
+        return diagnostic_builder!(
+            input.clone(),
+            format!(
+                "The brace count during region parsing didn't match! {}",
+                closed
+            )
+        );
     }
     Ok(Region::new(end, start, tokens))
 }
 
 pub(crate) fn parse_braced_call_immediately(
+    input: &String,
     tokens: &Vec<Token>,
     parse_start: usize,
 ) -> Option<Result<Region, DiagnosticBuilder>> {
     if let Token::OpenParen(_) = tokens.get(parse_start).unwrap() {
-        Some(parse_braced_call_region(tokens, parse_start))
+        Some(parse_braced_call_region(input, tokens, parse_start))
     } else if let Token::ClosedParen(_) = tokens.get(parse_start).unwrap() {
-        Some(parse_braced_call_region_backwards(tokens, parse_start))
+        Some(parse_braced_call_region_backwards(
+            input,
+            tokens,
+            parse_start,
+        ))
     } else {
         None
     }
@@ -1044,6 +1223,7 @@ impl Region {
             if let Token::Region(_, tokens) = token {
                 result.push(tokens);
             } else {
+                // This should never happen
                 panic!("No argument found, but {:?}", token);
             }
         }
@@ -1087,5 +1267,45 @@ mod macros {
             let tmp = String::from($name);
             $ctx.register_const(&tmp, $value);
         };
+    }
+}
+
+#[repr(transparent)]
+pub struct ParseResult<T>(pub(crate) Result<(T, Option<DiagnosticBuilder>), DiagnosticBuilder>);
+
+impl<T: Default> Default for ParseResult<T> {
+    fn default() -> Self {
+        Self(Ok((T::default(), None)))
+    }
+}
+
+impl<T> ParseResult<T> {
+    #[inline]
+    pub(crate) fn new_err(diagnostics_builder: DiagnosticBuilder) -> ParseResult<T> {
+        ParseResult(Err(diagnostics_builder))
+    }
+
+    #[inline]
+    pub(crate) fn new_ok(val: T) -> ParseResult<T> {
+        ParseResult(Ok((val, None)))
+    }
+
+    pub fn diagnostics(&self) -> Option<&DiagnosticBuilder> {
+        match &self.0 {
+            Ok(val) => val.1.as_ref(),
+            Err(diagnostics) => Some(diagnostics),
+        }
+    }
+
+    pub(crate) fn unwrap(self) -> (T, Option<DiagnosticBuilder>) {
+        self.0.unwrap()
+    }
+
+    // This is a temporary solution which we use until try_v2 gets stabilized!
+    fn to_wrapped(self) -> Result<ParseResult<T>, ParseResult<T>> {
+        match self.0 {
+            Ok(_) => Ok(self),
+            Err(_) => Err(self),
+        }
     }
 }

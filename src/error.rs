@@ -92,17 +92,33 @@ impl DiagnosticBuilder {
             input,
             items: vec![],
         };
-        ret.error_with_span(error, span);
+        ret.error_spanned(error, span);
         ret
     }
 
+    #[inline]
     pub(crate) fn from_input_and_err(input: String, error: String) -> Self {
-        let mut ret = Self {
-            input,
-            items: vec![],
-        };
-        ret.error(error);
-        ret
+        Self::from_input_and_err_with_span(input, error, Span::NONE)
+    }
+
+    pub fn error_spanned(&mut self, error: String, span: Span) -> &mut Self {
+        self.items.push(DiagnosticItem::Error(error, span));
+        self
+    }
+
+    #[inline]
+    pub fn error(&mut self, error: String) -> &mut Self {
+        self.error_spanned(error, Span::NONE)
+    }
+
+    pub fn warn_spanned(&mut self, warning: String, span: Span) -> &mut Self {
+        self.items.push(DiagnosticItem::Warn(warning, span));
+        self
+    }
+
+    #[inline]
+    pub fn warn(&mut self, warning: String) -> &mut Self {
+        self.warn_spanned(warning, Span::NONE)
     }
 
     pub fn note(&mut self, note: String) -> &mut Self {
@@ -110,27 +126,10 @@ impl DiagnosticBuilder {
         self
     }
 
-    pub fn error_with_span(&mut self, error: String, span: Span) -> &mut Self {
-        self.items.push(DiagnosticItem::Error(error, span));
-        self
-    }
-
-    pub fn error(&mut self, error: String) -> &mut Self {
-        self.items.push(DiagnosticItem::Error(error, Span::NONE));
-        self
-    }
-
-    pub fn suggestion_with_span(&mut self, suggestion: String, span: Span) -> &mut Self {
+    pub fn suggest_spanned(&mut self, suggestion: String, span: Span) -> &mut Self {
         self.items
             .push(DiagnosticItem::Suggestion(suggestion, span));
         self
-    }
-
-    pub fn build_msg(&self, msg: String) -> Vec<String> {
-        let mut result = vec![];
-        result.push(msg);
-
-        result
     }
 
     fn build_span_string(span: &Span) -> String {
@@ -161,6 +160,7 @@ impl Error for DiagnosticBuilder {}
 #[derive(Debug)]
 pub(crate) enum DiagnosticItem {
     Error(String, Span),
+    Warn(String, Span),
     Suggestion(String, Span),
     Note(String),
 }
@@ -179,6 +179,21 @@ impl DiagnosticItem {
                         + "\n"
                 } else {
                     input.to_owned() + "\n" + &str.red().to_string() + "\n"
+                }
+            }
+            DiagnosticItem::Warn(str, span) => {
+                if !span.is_none() {
+                    input.to_owned()
+                        + "\n"
+                        + &DiagnosticBuilder::build_span_string(span)
+                            .yellow()
+                            .to_string()
+                        + "\n"
+                        + &" ".repeat(span.start)
+                        + &str.yellow().to_string()
+                        + "\n"
+                } else {
+                    input.to_owned() + "\n" + &str.yellow().to_string() + "\n"
                 }
             }
             DiagnosticItem::Suggestion(str, span) => {
