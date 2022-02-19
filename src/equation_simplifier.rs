@@ -374,7 +374,6 @@ struct SingleBraceSimplificationPass {}
 impl SimplificationPass for SingleBraceSimplificationPass {
     fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         let mut open_braces = vec![];
-        let mut finished_braces = vec![];
         while let Some(token) = token_stream.next() {
             if let Token::OpenParen(_) = token {
                 open_braces.push(token_stream.inner_idx());
@@ -387,64 +386,15 @@ impl SimplificationPass for SingleBraceSimplificationPass {
                     token_stream.inner_tokens_mut().remove(current - 2);
                     token_stream.go_back();
                     token_stream.go_back();
-                } else {
-                    finished_braces.push((last, current));
                 }
             }
-        }
-        // 4+(((x+4)))+((4*7+7))*3 // FIXME: Fix this!
-        let mut removed = vec![];
-        let mut last = &(usize::MAX, usize::MAX);
-        for brace in finished_braces.iter() {
-            println!("iterating braces!");
-            if (brace.0.max(last.0) - brace.0.min(last.0)) == 1
-                && (brace.1.max(last.1) - brace.1.min(last.1)) == 1
-            {
-                println!("removiiing!");
-                /*finished_braces.remove(brace_idx);
-                for prev in finished_braces.iter_mut() {
-                    if prev.1 > brace.0 {
-                        prev.1 -= 1;
-                    }
-                    if prev.0 > brace.0 {
-                        prev.0 -= 1;
-                    }
-                    if prev.1 > brace.1 {
-                        prev.1 -= 1;
-                    }
-                    if prev.0 > brace.1 {
-                        prev.0 -= 1;
-                    }
-                }*/
-                removed.push(brace.clone());
-            }
-            last = brace;
-        }
-        while !removed.is_empty() {
-            let brace = removed.remove(0);
-            for prev in finished_braces.iter_mut() {
-                if prev.1 > brace.0 {
-                    prev.1 -= 1;
-                }
-                if prev.0 > brace.0 {
-                    prev.0 -= 1;
-                }
-                if prev.1 > brace.1 {
-                    prev.1 -= 1;
-                }
-                if prev.0 > brace.1 {
-                    prev.0 -= 1;
-                }
-            }
-            token_stream.inner_tokens_mut().remove(brace.1);
-            token_stream.inner_tokens_mut().remove(brace.0);
         }
         Ok(())
     }
 }
 
 pub(crate) fn remove_token_or_braced_region(
-    input: String, // FIXME: Can we just pass a reference here?
+    input: String, // FIXME: Can we just pass this by reference here?
     tokens: &mut Vec<Token>,
     idx: usize,
 ) -> Result<(), DiagnosticBuilder> {
