@@ -185,13 +185,6 @@ impl Lexer {
                     } else {
                         // This has to be an Op instead of a Sign because of abs modes.
                         Some(Token::Op(c.0, sign.1))
-                        /*
-                          if ans_mode == ANSMode::Always {
-                            Some(Token::Op(c.0, sign.1))
-                        } else {
-                            Some(Token::Sign(c.0, sign.0))
-                        }
-                        */
                     }
                 }
                 _ => {

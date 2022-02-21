@@ -308,13 +308,59 @@ impl Parser {
             }
             Action::Eval => {
                 let mut diagnostic_builder = DiagnosticBuilder::new(parse_context.input.clone());
-                // TODO: Try cleaning this ans stuff up a bit!
-                if !self.tokens.is_empty() && TokenKind::Op == self.tokens.get(0).unwrap().kind() {
-                    if let Some(last) = parse_context.last_result {
+                if !self.tokens.is_empty() {
+                    let token = self.tokens.get(0).unwrap().clone();
+                    if TokenKind::Op == token.kind() {
                         match ans_mode {
                             ANSMode::WhenImplicit => {
-                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap().clone() {
+                                if let Token::Op(_, kind) = token {
                                     if kind != OpKind::Plus && kind != OpKind::Minus {
+                                        if let Some(last) = parse_context.last_result {
+                                            self.tokens.insert(
+                                                0,
+                                                Token::Literal(
+                                                    Span::NONE,
+                                                    last.to_string(),
+                                                    SignKind::Plus,
+                                                    LiteralKind::Number,
+                                                ),
+                                            );
+                                        } else {
+                                            return ParseResult(diagnostic_builder!(
+                                            parse_context.input.clone(),
+                                            "There is no previous result on which we could operate on!",
+                                            0
+                                        ));
+                                        }
+                                    } else {
+                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
+                                        self.tokens.remove(0);
+                                        let mut following = self.tokens.get_mut(0).unwrap();
+                                        if let Token::Literal(span, buffer, sign, lit_kind) =
+                                            following
+                                        {
+                                            if sign == &SignKind::Minus
+                                                || (lit_kind == &LiteralKind::Number
+                                                    && buffer.chars().next().unwrap() == '-')
+                                            {
+                                                // FIXME: Detect + sign as well
+                                                return ParseResult(diagnostic_builder!(
+                                                    parse_context.input.clone(),
+                                                    "You can't put 2 signs in front of a number!",
+                                                    span.start()
+                                                ));
+                                            }
+                                            *sign = SignKind::Minus;
+                                        }
+                                    }
+                                }
+                            }
+                            ANSMode::Always => {
+                                if let Some(last) = parse_context.last_result {
+                                    if let Token::Op(_, kind) = token {
+                                        if kind == OpKind::Plus || kind == OpKind::Minus {
+                                            diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
+                                        }
                                         self.tokens.insert(
                                             0,
                                             Token::Literal(
@@ -324,100 +370,29 @@ impl Parser {
                                                 LiteralKind::Number,
                                             ),
                                         );
-                                    } else {
-                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
-                                        self.tokens.remove(0);
-                                        let mut following = self.tokens.get_mut(0).unwrap();
-                                        if let Token::Literal(_, buffer, sign, lit_kind) = following
-                                        {
-                                            if sign == &SignKind::Minus
-                                                || (lit_kind == &LiteralKind::Number
-                                                    && buffer.chars().next().unwrap() == '-')
-                                            {
-                                                // FIXME: Detect + sign as well
-                                                panic!("Too many signs!") // TODO: Provide proper diagnostics!
-                                            }
-                                            *sign = SignKind::Minus;
-                                        }
                                     }
-                                }
-                            }
-                            ANSMode::Always => {
-                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap() {
-                                    if kind == &OpKind::Plus || kind == &OpKind::Minus {
-                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
-                                    }
-                                    self.tokens.insert(
-                                        0,
-                                        Token::Literal(
-                                            Span::NONE,
-                                            last.to_string(),
-                                            SignKind::Plus,
-                                            LiteralKind::Number,
-                                        ),
-                                    );
+                                } else {
+                                    return ParseResult(diagnostic_builder!(
+                                        parse_context.input.clone(),
+                                        "There is no previous result on which we could operate on!",
+                                        0
+                                    ));
                                 }
                             }
                             ANSMode::Never => {
                                 self.tokens.remove(0);
                                 let mut following = self.tokens.get_mut(0).unwrap();
-                                if let Token::Literal(_, buffer, sign, lit_kind) = following {
+                                if let Token::Literal(span, buffer, sign, lit_kind) = following {
                                     if sign == &SignKind::Minus
                                         || (lit_kind == &LiteralKind::Number
                                             && buffer.chars().next().unwrap() == '-')
                                     {
                                         // FIXME: Detect + sign as well
-                                        panic!("Too many signs!") // TODO: Provide proper diagnostics!
-                                    }
-                                    *sign = SignKind::Minus;
-                                }
-                            }
-                        }
-                    } else {
-                        match ans_mode {
-                            ANSMode::WhenImplicit => {
-                                if let Token::Op(_, kind) = self.tokens.get(0).unwrap().clone() {
-                                    if kind != OpKind::Plus && kind != OpKind::Minus {
                                         return ParseResult(diagnostic_builder!(
                                             parse_context.input.clone(),
-                                            "There is no previous result on which we could operate on!",
-                                            0
+                                            "You can't put 2 signs in front of a number!",
+                                            span.start()
                                         ));
-                                    } else {
-                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
-                                        self.tokens.remove(0);
-                                        let mut following = self.tokens.get_mut(0).unwrap();
-                                        if let Token::Literal(_, buffer, sign, lit_kind) = following
-                                        {
-                                            if sign == &SignKind::Minus
-                                                || (lit_kind == &LiteralKind::Number
-                                                    && buffer.chars().next().unwrap() == '-')
-                                            {
-                                                // FIXME: Detect + sign as well
-                                                panic!("Too many signs!") // TODO: Provide proper diagnostics!
-                                            }
-                                            *sign = SignKind::Minus;
-                                        }
-                                    }
-                                }
-                            }
-                            ANSMode::Always => {
-                                return ParseResult(diagnostic_builder!(
-                                    parse_context.input.clone(),
-                                    "There is no previous result on which we could operate on!",
-                                    0
-                                ));
-                            }
-                            ANSMode::Never => {
-                                self.tokens.remove(0);
-                                let mut following = self.tokens.get_mut(0).unwrap();
-                                if let Token::Literal(_, buffer, sign, lit_kind) = following {
-                                    if sign == &SignKind::Minus
-                                        || (lit_kind == &LiteralKind::Number
-                                            && buffer.chars().next().unwrap() == '-')
-                                    {
-                                        // FIXME: Detect + sign as well
-                                        panic!("Too many signs!") // TODO: Provide proper diagnostics!
                                     }
                                     *sign = SignKind::Minus;
                                 }
