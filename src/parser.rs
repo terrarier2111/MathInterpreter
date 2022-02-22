@@ -1,20 +1,16 @@
+use crate::_lib::Mode;
+use crate::equation_simplifier::simplify;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{
     Associativity, ImplicitlyMultiply, LiteralKind, Number, OpKind, SignKind, Token, TokenKind,
 };
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::MathematicalOps;
-use std::collections::HashMap;
-use std::mem::transmute;
-use std::ops::{Index, Neg, Range};
-#[macro_use]
-use crate::parser::macros as mac;
-use crate::_lib::Mode;
-use crate::equation_simplifier::simplify;
 use crate::{
     diagnostic_builder, diagnostic_builder_spanned, pluralize, register_builtin_func,
-    register_const, ANSMode,
+    register_const, ANSMode, Config, DiagnosticsConfig, _lib,
 };
+use rust_decimal::MathematicalOps;
+use std::collections::HashMap;
+use std::ops::{Neg, Range};
 
 const NONE: usize = usize::MAX;
 
@@ -40,6 +36,7 @@ impl Parser {
                     if parse_context.exists_var(content) {
                         let mut var = parse_context.lookup_var(content);
                         if sign == &SignKind::Minus {
+                            // Reverses the sign of `var` in order to later remove it and to later get the resulting sign from it.
                             var = var.neg();
                         }
                         replaced_tokens.push((token.0, var))
@@ -50,13 +47,18 @@ impl Parser {
             }
         }
         for token in replaced_tokens {
-            self.tokens[token.0] = Token::Literal(
-                Span::NONE,
-                token.1.to_string(),
-                SignKind::Plus,
-                LiteralKind::Number,
-            );
-            // TODO: Detect the correct sign!
+            let sign = if token.1.is_sign_negative() {
+                SignKind::Minus
+            } else {
+                SignKind::Default
+            };
+            let number = if token.1.is_sign_negative() {
+                token.1.neg()
+            } else {
+                token.1
+            };
+            self.tokens[token.0] =
+                Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
         }
         replace_fn_calls(possibly_replaced_funcs, &mut self.tokens, parse_context)?;
         Ok(())
@@ -69,7 +71,7 @@ impl Parser {
         mode: Mode,
     ) -> ParseResult<Option<Number>> {
         match mode {
-            Mode::Normal => self.parse_normal(parse_context, ans_mode),
+            Mode::Eval => self.parse_eval(parse_context, ans_mode),
             Mode::Simplify => {
                 match self.parse_simplify(parse_context).0 {
                     Ok(_) => {}
@@ -83,7 +85,7 @@ impl Parser {
         }
     }
 
-    fn parse_normal(
+    fn parse_eval(
         &mut self,
         parse_context: &mut ParseContext,
         ans_mode: ANSMode,
@@ -335,14 +337,9 @@ impl Parser {
                                     } else {
                                         diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
                                         self.tokens.remove(0);
-                                        let mut following = self.tokens.get_mut(0).unwrap();
-                                        if let Token::Literal(span, buffer, sign, lit_kind) =
-                                            following
-                                        {
-                                            if sign == &SignKind::Minus
-                                                || (lit_kind == &LiteralKind::Number
-                                                    && buffer.chars().next().unwrap() == '-')
-                                            {
+                                        let following = self.tokens.get_mut(0).unwrap();
+                                        if let Token::Literal(span, _, sign, _) = following {
+                                            if sign == &SignKind::Minus {
                                                 // FIXME: Detect + sign as well
                                                 return ParseResult(diagnostic_builder!(
                                                     parse_context.input.clone(),
@@ -381,12 +378,9 @@ impl Parser {
                             }
                             ANSMode::Never => {
                                 self.tokens.remove(0);
-                                let mut following = self.tokens.get_mut(0).unwrap();
-                                if let Token::Literal(span, buffer, sign, lit_kind) = following {
-                                    if sign == &SignKind::Minus
-                                        || (lit_kind == &LiteralKind::Number
-                                            && buffer.chars().next().unwrap() == '-')
-                                    {
+                                let following = self.tokens.get_mut(0).unwrap();
+                                if let Token::Literal(span, _, sign, _) = following {
+                                    if sign == &SignKind::Minus {
                                         // FIXME: Detect + sign as well
                                         return ParseResult(diagnostic_builder!(
                                             parse_context.input.clone(),
@@ -827,13 +821,18 @@ impl Function {
             }
         }
         for x in replace_consts {
-            tokens[x.0] = Token::Literal(
-                Span::NONE,
-                x.1?.to_string(),
-                SignKind::Plus,
-                LiteralKind::Number,
-            );
-            // TODO: Detect sign correctly!
+            let number = x.1?;
+            let sign = if number.is_sign_negative() {
+                SignKind::Minus
+            } else {
+                SignKind::Default
+            };
+            let number = if number.is_sign_negative() {
+                number.neg()
+            } else {
+                number
+            };
+            tokens[x.0] = Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
         }
 
         Ok(Self {
@@ -905,11 +904,6 @@ impl BuiltInFunction {
         parse_ctx: &ParseContext,
     ) -> PResult<Vec<Token>> {
         if self.arg_count != arg_values.len() {
-            /*let args_txt = if self.arg_count == 1 {
-                "argument"
-            } else {
-                "arguments"
-            };*/
             let args_txt = pluralize!(self.arg_count);
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
@@ -927,10 +921,21 @@ impl BuiltInFunction {
             let result = eval_rpn(rpn, parse_ctx)?;
             args.push(result);
         }
+        let result = (self.inner)(args);
+        let sign = if result.is_sign_negative() {
+            SignKind::Minus
+        } else {
+            SignKind::Default
+        };
+        let result = if result.is_sign_negative() {
+            result.neg()
+        } else {
+            result
+        };
         Ok(vec![Token::Literal(
             Span::NONE,
-            (self.inner)(args).to_string(),
-            SignKind::Plus, // TODO: Detect sign correctly!
+            result.to_string(),
+            sign,
             LiteralKind::Number,
         )])
     }
@@ -962,9 +967,9 @@ fn replace_fn_calls(
     for repl in fns.into_iter() {
         let adjusted_idx = (repl as isize + offset) as usize;
         let start = tokens.len();
-        let mut region = parse_braced_call_region(&parse_ctx.input, tokens, adjusted_idx)?;
+        let region = parse_braced_call_region(&parse_ctx.input, tokens, adjusted_idx)?;
         let args = region.erase_and_provide_args(tokens);
-        let mut result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
+        let result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
             if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
                 parse_ctx.call_func(&lit, args)?
             } else {
@@ -1213,10 +1218,12 @@ impl Region {
         }
     }
 
+    #[inline]
     pub(crate) fn as_range(&self) -> Range<usize> {
         self.start..(self.end + 1) // add 1 here because the token at `self.end` should be removed as well
     }
 
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         (self.end + 1) - self.start
     }
@@ -1272,15 +1279,72 @@ impl<T> ParseResult<T> {
         }
     }
 
+    #[inline]
     pub(crate) fn unwrap(self) -> (T, Option<DiagnosticBuilder>) {
         self.0.unwrap()
     }
 
     // This is a temporary solution which we use until try_v2 gets stabilized!
+    #[inline]
     fn to_wrapped(self) -> Result<ParseResult<T>, ParseResult<T>> {
         match self.0 {
             Ok(_) => Ok(self),
             Err(_) => Err(self),
         }
     }
+}
+
+#[test]
+fn test() {
+    let mut context = _lib::new_eval_ctx(Config::new(
+        DiagnosticsConfig::default(),
+        ANSMode::WhenImplicit,
+        Mode::Eval,
+    ));
+    let result = _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "32");
+    let result = _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "0");
+    _lib::eval(String::from("a(x)=(x/2)+3"), &mut context).unwrap();
+    let result = _lib::eval(String::from("a(-12.4)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "-3.2");
+    let result = _lib::eval(String::from("(-1)*(5*6)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "-30");
+    _lib::eval(String::from("b(x, y)=(x/2)+3+y"), &mut context).unwrap();
+    let result = _lib::eval(String::from("b(-12.4, 3)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "-0.2");
+    let result = _lib::eval(String::from("*4"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "-0.8");
+    // let result = _lib::eval(String::from("0/(5*3+4)"), &mut context).unwrap().0.unwrap().normalize().to_string(); // TODO: Fix this
+    // assert_eq!(result, "0");
 }

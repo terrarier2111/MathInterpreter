@@ -1,10 +1,7 @@
-use crate::_lib::Mode;
-use crate::error::DiagnosticBuilder;
 use crate::lexer::Lexer;
-use crate::parser::{PResult, ParseContext, ParseResult, Parser};
+use crate::parser::{ParseContext, ParseResult, Parser};
 use crate::shared::Number;
 use crate::Config;
-use std::mem::transmute;
 
 pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Number>> {
     let lexer = Lexer::new();

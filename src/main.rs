@@ -9,14 +9,13 @@ mod shared;
 mod utils;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
-use colored::*;
 
 fn main() {
     colored::control::set_override(true);
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
-        Mode::Normal,
+        Mode::Eval,
     ));
     loop {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();

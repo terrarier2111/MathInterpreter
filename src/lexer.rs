@@ -1,7 +1,7 @@
+use crate::diagnostic_builder;
 use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::OpKind::{Divide, Minus, Modulo, Multiply, Plus, Pow};
+use crate::shared::OpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenKind};
-use crate::{diagnostic_builder, ANSMode};
 
 pub(crate) struct Lexer {}
 
@@ -205,10 +205,10 @@ impl Lexer {
                                         tokens.pop();
                                         (idx, kind)
                                     } else {
-                                        (c.0, SignKind::Plus)
+                                        (c.0, SignKind::Default)
                                     }
                                 } else {
-                                    (c.0, SignKind::Plus)
+                                    (c.0, SignKind::Default)
                                 };
                                 token_type = Some(Token::Literal(
                                     Span::from_idx(sign.0),
@@ -259,13 +259,7 @@ impl Lexer {
                 }
             }
         }
-        if let Some(mut token) = token_type.take() {
-            if let Token::Literal(_, buffer, sign, kind) = &mut token {
-                if sign == &mut SignKind::Minus {
-                    // FIXME: This only works for `LiteralKind::Number`, fix it for other literal kinds!
-                    buffer.insert(0, '-'); // FIXME: Make a universal choice about when to insert the sign to numbers and how to always have correct sign kinds
-                }
-            }
+        if let Some(token) = token_type.take() {
             tokens.push(token);
         }
         Ok(tokens)

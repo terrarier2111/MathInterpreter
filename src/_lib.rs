@@ -3,7 +3,7 @@
 use crate::__lib;
 use crate::__lib::EvalContext;
 use crate::_lib::DiagnosticsPrintingOrder::After;
-use crate::parser::{PResult, ParseResult};
+use crate::parser::ParseResult;
 use crate::shared::Number;
 
 pub struct Config {
@@ -42,7 +42,7 @@ impl Default for DiagnosticsPrintingOrder {
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum Mode {
-    Normal,
+    Eval,
     Simplify,
     Solve,
 }

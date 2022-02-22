@@ -2,7 +2,6 @@ use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenStream};
 use crate::{_lib, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
 use rust_decimal::prelude::One;
-use rust_decimal::Decimal;
 
 // const SIMPLIFICATION_PASSES: [Box<dyn SimplificationPass>; 2] = [Box::new(ConstOpSimplificationPass {}), Box::new(NoopSimplificationPass {})];
 

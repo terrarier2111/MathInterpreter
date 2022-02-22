@@ -2,7 +2,6 @@ use crate::error::Span;
 use rust_decimal::{Decimal, MathematicalOps};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
-use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub enum Token {
@@ -285,6 +284,7 @@ impl ArgsKind {
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum SignKind {
+    Default,
     Plus,
     Minus,
 }
@@ -292,7 +292,7 @@ pub enum SignKind {
 impl SignKind {
     pub fn to_raw(&self) -> char {
         match self {
-            SignKind::Plus => '+',
+            SignKind::Plus | SignKind::Default => '+',
             SignKind::Minus => '-',
         }
     }
