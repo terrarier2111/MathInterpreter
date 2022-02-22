@@ -2,7 +2,8 @@ use crate::_lib::Mode;
 use crate::equation_simplifier::simplify;
 use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::{
-    Associativity, ImplicitlyMultiply, LiteralKind, Number, OpKind, SignKind, Token, TokenKind,
+    num_to_num_and_sign, Associativity, ImplicitlyMultiply, LiteralKind, Number, OpKind, SignKind,
+    Token, TokenKind,
 };
 use crate::{
     diagnostic_builder, diagnostic_builder_spanned, pluralize, register_builtin_func,
@@ -47,16 +48,7 @@ impl Parser {
             }
         }
         for token in replaced_tokens {
-            let sign = if token.1.is_sign_negative() {
-                SignKind::Minus
-            } else {
-                SignKind::Default
-            };
-            let number = if token.1.is_sign_negative() {
-                token.1.neg()
-            } else {
-                token.1
-            };
+            let (number, sign) = num_to_num_and_sign(token.1);
             self.tokens[token.0] =
                 Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
         }
@@ -318,12 +310,13 @@ impl Parser {
                                 if let Token::Op(_, kind) = token {
                                     if kind != OpKind::Plus && kind != OpKind::Minus {
                                         if let Some(last) = parse_context.last_result {
+                                            let (last, sign) = num_to_num_and_sign(last);
                                             self.tokens.insert(
                                                 0,
                                                 Token::Literal(
                                                     Span::NONE,
                                                     last.to_string(),
-                                                    SignKind::Plus,
+                                                    sign,
                                                     LiteralKind::Number,
                                                 ),
                                             );
@@ -339,15 +332,18 @@ impl Parser {
                                         self.tokens.remove(0);
                                         let following = self.tokens.get_mut(0).unwrap();
                                         if let Token::Literal(span, _, sign, _) = following {
-                                            if sign == &SignKind::Minus {
-                                                // FIXME: Detect + sign as well
+                                            if sign != &SignKind::Default {
                                                 return ParseResult(diagnostic_builder!(
                                                     parse_context.input.clone(),
                                                     "You can't put 2 signs in front of a number!",
                                                     span.start()
                                                 ));
                                             }
-                                            *sign = SignKind::Minus;
+                                            *sign = if kind == OpKind::Minus {
+                                                SignKind::Minus
+                                            } else {
+                                                SignKind::Plus
+                                            };
                                         }
                                     }
                                 }
@@ -358,12 +354,13 @@ impl Parser {
                                         if kind == OpKind::Plus || kind == OpKind::Minus {
                                             diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
                                         }
+                                        let (last, sign) = num_to_num_and_sign(last);
                                         self.tokens.insert(
                                             0,
                                             Token::Literal(
                                                 Span::NONE,
                                                 last.to_string(),
-                                                SignKind::Plus,
+                                                sign,
                                                 LiteralKind::Number,
                                             ),
                                         );
@@ -380,15 +377,18 @@ impl Parser {
                                 self.tokens.remove(0);
                                 let following = self.tokens.get_mut(0).unwrap();
                                 if let Token::Literal(span, _, sign, _) = following {
-                                    if sign == &SignKind::Minus {
-                                        // FIXME: Detect + sign as well
+                                    if sign != &SignKind::Default {
                                         return ParseResult(diagnostic_builder!(
                                             parse_context.input.clone(),
                                             "You can't put 2 signs in front of a number!",
                                             span.start()
                                         ));
                                     }
-                                    *sign = SignKind::Minus;
+                                    *sign = if kind == OpKind::Minus {
+                                        SignKind::Minus
+                                    } else {
+                                        SignKind::Plus
+                                    };
                                 }
                             }
                         }
@@ -821,17 +821,7 @@ impl Function {
             }
         }
         for x in replace_consts {
-            let number = x.1?;
-            let sign = if number.is_sign_negative() {
-                SignKind::Minus
-            } else {
-                SignKind::Default
-            };
-            let number = if number.is_sign_negative() {
-                number.neg()
-            } else {
-                number
-            };
+            let (number, sign) = num_to_num_and_sign(x.1?);
             tokens[x.0] = Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
         }
 
@@ -921,17 +911,7 @@ impl BuiltInFunction {
             let result = eval_rpn(rpn, parse_ctx)?;
             args.push(result);
         }
-        let result = (self.inner)(args);
-        let sign = if result.is_sign_negative() {
-            SignKind::Minus
-        } else {
-            SignKind::Default
-        };
-        let result = if result.is_sign_negative() {
-            result.neg()
-        } else {
-            result
-        };
+        let (result, sign) = num_to_num_and_sign((self.inner)(args));
         Ok(vec![Token::Literal(
             Span::NONE,
             result.to_string(),

@@ -82,7 +82,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     Token::Literal(
                                         Span::NONE,
                                         result.to_string(),
-                                        SignKind::Plus,
+                                        SignKind::Default,
                                         LiteralKind::Number,
                                     ),
                                 );
@@ -122,7 +122,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     Token::Literal(
                                         Span::NONE,
                                         result.to_string(),
-                                        SignKind::Plus,
+                                        SignKind::Default,
                                         LiteralKind::Number,
                                     ),
                                 );
@@ -161,7 +161,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     Token::Literal(
                                         Span::NONE,
                                         result.to_string(),
-                                        SignKind::Plus,
+                                        SignKind::Default,
                                         LiteralKind::Number,
                                     ),
                                 );

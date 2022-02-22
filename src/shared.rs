@@ -74,19 +74,11 @@ impl Token {
             Token::Eq(_) => String::from("="),
             Token::VertBar(_) => String::from("|"),
             Token::Comma(_) => String::from(","),
-            Token::Op(_, op) => match op {
-                OpKind::Plus => String::from("+"),
-                OpKind::Minus => String::from("-"),
-                OpKind::Divide => String::from("/"),
-                OpKind::Multiply => String::from("*"),
-                OpKind::Modulo => String::from("%"),
-                OpKind::Pow => String::from("^"),
-                OpKind::OpenParen => panic!("Are you sure this is correct?"), // TODO: Check this!
-            },
+            Token::Op(_, op) => op.to_char(),
             Token::Literal(_, buf, sign, _) => {
                 let mut result = buf.clone();
                 if sign == &SignKind::Minus {
-                    result.insert(0, sign.to_raw()); // TODO: Should this to_raw call be replaced by a '-'?
+                    result.insert(0, '-');
                 }
                 result
             }
@@ -299,6 +291,14 @@ impl SignKind {
 }
 
 pub type Number = Decimal;
+
+pub(crate) fn num_to_num_and_sign(num: Number) -> (Number, SignKind) {
+    if num.is_sign_negative() {
+        (num.neg, SignKind::Minus)
+    } else {
+        (num, SignKind::Default)
+    }
+}
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Associativity {
