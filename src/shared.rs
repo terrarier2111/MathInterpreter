@@ -69,12 +69,12 @@ impl Token {
 
     pub fn to_raw(&self) -> String {
         match self {
-            Token::OpenParen(_) => String::from("("),
-            Token::ClosedParen(_) => String::from(")"),
-            Token::Eq(_) => String::from("="),
-            Token::VertBar(_) => String::from("|"),
-            Token::Comma(_) => String::from(","),
-            Token::Op(_, op) => op.to_char(),
+            Token::OpenParen(_) => String::from('('),
+            Token::ClosedParen(_) => String::from(')'),
+            Token::Eq(_) => String::from('='),
+            Token::VertBar(_) => String::from('|'),
+            Token::Comma(_) => String::from(','),
+            Token::Op(_, op) => String::from(op.to_char()),
             Token::Literal(_, buf, sign, _) => {
                 let mut result = buf.clone();
                 if sign == &SignKind::Minus {
@@ -294,7 +294,7 @@ pub type Number = Decimal;
 
 pub(crate) fn num_to_num_and_sign(num: Number) -> (Number, SignKind) {
     if num.is_sign_negative() {
-        (num.neg, SignKind::Minus)
+        (num.neg(), SignKind::Minus)
     } else {
         (num, SignKind::Default)
     }

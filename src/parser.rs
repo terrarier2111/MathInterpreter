@@ -374,21 +374,23 @@ impl Parser {
                                 }
                             }
                             ANSMode::Never => {
-                                self.tokens.remove(0);
-                                let following = self.tokens.get_mut(0).unwrap();
-                                if let Token::Literal(span, _, sign, _) = following {
-                                    if sign != &SignKind::Default {
-                                        return ParseResult(diagnostic_builder!(
-                                            parse_context.input.clone(),
-                                            "You can't put 2 signs in front of a number!",
-                                            span.start()
-                                        ));
+                                if let Token::Op(_, kind) = token {
+                                    self.tokens.remove(0);
+                                    let following = self.tokens.get_mut(0).unwrap();
+                                    if let Token::Literal(span, _, sign, _) = following {
+                                        if sign != &SignKind::Default {
+                                            return ParseResult(diagnostic_builder!(
+                                                parse_context.input.clone(),
+                                                "You can't put 2 signs in front of a number!",
+                                                span.start()
+                                            ));
+                                        }
+                                        *sign = if kind == OpKind::Minus {
+                                            SignKind::Minus
+                                        } else {
+                                            SignKind::Plus
+                                        };
                                     }
-                                    *sign = if kind == OpKind::Minus {
-                                        SignKind::Minus
-                                    } else {
-                                        SignKind::Plus
-                                    };
                                 }
                             }
                         }
