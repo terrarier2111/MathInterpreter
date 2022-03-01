@@ -1372,6 +1372,11 @@ fn test() {
         .normalize()
         .to_string();
     assert_eq!(result, "-0.8");
-    // let result = _lib::eval(String::from("0/(5*3+4)"), &mut context).unwrap().0.unwrap().normalize().to_string(); // TODO: Fix this
-    // assert_eq!(result, "0");
+    let result = _lib::eval(String::from("0/(5*3+4)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "0");
 }

@@ -3,24 +3,31 @@ use crate::error::{DiagnosticBuilder, Span};
 use crate::shared::OpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenKind};
 
-pub(crate) struct Lexer {}
+pub(crate) struct Lexer();
 
 impl Lexer {
+    #[inline]
     pub fn new() -> Self {
-        Self {}
+        Self()
     }
 
-    // TODO: Improve dot validation!
-    pub fn lex(
-        &self,
-        input: String, /*, ans_mode: ANSMode*/
-    ) -> Result<Vec<Token>, DiagnosticBuilder> {
+    pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
         for c in input.chars().enumerate() {
             let x = c.1;
             if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
                 if let Some(token) = token_type.take() {
+                    // Check if the literal ends with a dot
+                    if let Token::Literal(span, buf, _, kind) = &token {
+                        if kind == &LiteralKind::Number && buf.ends_with('.') {
+                            return diagnostic_builder!(
+                                input.clone(),
+                                "`.` at wrong location",
+                                span.end() - 1
+                            );
+                        }
+                    }
                     tokens.push(token);
                 }
             }
@@ -227,6 +234,17 @@ impl Lexer {
                                     Token::Literal(span, buffer, _, prev_kind) => {
                                         if alphabetic && prev_kind != &mut LiteralKind::CharSeq {
                                             *prev_kind = LiteralKind::CharSeq;
+                                        }
+                                        // Check for previous dots
+                                        if prev_kind == &mut LiteralKind::Number
+                                            && x == '.'
+                                            && buffer.contains('.')
+                                        {
+                                            return diagnostic_builder!(
+                                                input.clone(),
+                                                "`.` at wrong location",
+                                                c.0
+                                            );
                                         }
                                         buffer.push(x);
                                         span.expand_hi();
