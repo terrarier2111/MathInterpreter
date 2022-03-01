@@ -421,7 +421,52 @@ impl Parser {
         }
     }
 
-    fn parse_simplify(&self, parse_ctx: &mut ParseContext) -> ParseResult<()> {
+    fn parse_simplify(&mut self, parse_ctx: &mut ParseContext) -> ParseResult<()> {
+        // Make implicit multiplications explicit!
+        let mut eq_location = NONE;
+        let mut last_token_mult = ImplicitlyMultiply::Never;
+        let mut multiplications = vec![];
+        for token in self.tokens.iter().enumerate() {
+            if eq_location == NONE {
+                match token.1 {
+                    Token::Eq(_) => {
+                        multiplications.clear();
+                        eq_location = token.0;
+                    } // TODO: Detect second Eq and error!
+                    Token::Other(sp, raw) => {
+                        return ParseResult(diagnostic_builder!(
+                            parse_ctx.input.clone(),
+                            format!("Unexpected token `{}`", raw),
+                            *sp
+                        ))
+                    }
+                    Token::Region(_, _) => panic!(),
+                    Token::None => unreachable!(),
+                    _ => {}
+                }
+            }
+            let curr_token_mult = if let Token::Literal(_, buff, _, kind) = token.1 {
+                if *kind == LiteralKind::CharSeq
+                    && (parse_ctx.exists_fn(buff) || parse_ctx.exists_builtin_func(buff))
+                {
+                    ImplicitlyMultiply::Never
+                } else {
+                    ImplicitlyMultiply::Always
+                }
+            } else {
+                token.1.implicitly_multiply_left()
+            };
+            if curr_token_mult.can_multiply_with_left(last_token_mult) {
+                multiplications.push(token.0);
+            }
+            last_token_mult = curr_token_mult;
+        }
+        for x in multiplications.iter().enumerate() {
+            self.tokens
+                .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
+        }
+
+        // Simplify the statement
         let simplified = match simplify(parse_ctx.input.clone(), self.tokens.clone()) {
             Ok(val) => val,
             Err(err) => return ParseResult::new_err(err),
