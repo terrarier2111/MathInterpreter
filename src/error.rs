@@ -30,19 +30,19 @@ impl Span {
 
     #[inline]
     pub fn shrink_lo(&mut self) {
-        if self.end - self.start > 1 {
+        if self.end - self.start >= 1 {
             self.start += 1;
         } else {
-            // TODO: Error properly!
+            panic!("Tried to shrink a zero sized span.")
         }
     }
 
     #[inline]
     pub fn shrink_hi(&mut self) {
-        if self.end - self.start > 1 {
+        if self.end - self.start >= 1 {
             self.end -= 1;
         } else {
-            // TODO: Error properly!
+            panic!("Tried to shrink a zero sized span.")
         }
     }
 
@@ -52,7 +52,7 @@ impl Span {
         if self.start > 0 {
             self.start -= 1;
         } else {
-            // TODO: Error properly!
+            panic!("Tried to shrink a zero sized span.")
         }
     }
 

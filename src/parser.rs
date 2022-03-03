@@ -97,7 +97,7 @@ impl Parser {
                     Token::Eq(_) => {
                         multiplications.clear();
                         eq_location = token.0;
-                    } // TODO: Detect second Eq and error!
+                    } // TODO: Detect third Eq and error!
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
                     Token::Literal(..) => {}
@@ -432,7 +432,7 @@ impl Parser {
                     Token::Eq(_) => {
                         multiplications.clear();
                         eq_location = token.0;
-                    } // TODO: Detect second Eq and error!
+                    } // TODO: Detect third Eq and error!
                     Token::Other(sp, raw) => {
                         return ParseResult(diagnostic_builder!(
                             parse_ctx.input.clone(),

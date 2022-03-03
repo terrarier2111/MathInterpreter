@@ -60,11 +60,6 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Plus => {}
-                    OpKind::Minus => {}
-                    OpKind::Divide => {}
-                    OpKind::Multiply => {}
-                    OpKind::Modulo => {}
                     OpKind::Pow => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
@@ -92,7 +87,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                             }
                         }
                     }
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
@@ -103,8 +98,6 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Plus => {}
-                    OpKind::Minus => {}
                     OpKind::Multiply | OpKind::Modulo | OpKind::Divide => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
@@ -141,8 +134,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Pow => {}
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
@@ -189,11 +181,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Divide => {}
-                    OpKind::Multiply => {}
-                    OpKind::Modulo => {}
-                    OpKind::Pow => {}
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
@@ -210,11 +198,6 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
             if let Token::Op(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Plus => {}
-                    OpKind::Minus => {}
-                    OpKind::Divide => {}
-                    OpKind::Multiply => {}
-                    OpKind::Modulo => {}
                     OpKind::Pow => {
                         // handle right hand argument
                         if let Some(token) = args.1 {
@@ -246,7 +229,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
@@ -259,8 +242,6 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
             if let Token::Op(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Plus => {}
-                    OpKind::Minus => {}
                     OpKind::Divide => {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
@@ -321,9 +302,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Modulo => {}
-                    OpKind::Pow => {}
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
@@ -376,11 +355,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Divide => {}
-                    OpKind::Multiply => {}
-                    OpKind::Modulo => {}
-                    OpKind::Pow => {}
-                    OpKind::OpenParen => {}
+                    _ => {}
                 }
             }
         }
