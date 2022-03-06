@@ -16,7 +16,7 @@ pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, Diagnos
     let simplification_passes: [Box<dyn SimplificationPass>; 4] = [
         Box::new(ConstOpSimplificationPass {}),
         Box::new(NoopSimplificationPass {}),
-        Box::new(SingleBraceSimplificationPass {}),
+        Box::new(BraceSimplificationPass {}),
         Box::new(MultiplicationSequenceSimplificationPass {}),
     ];
     for _ in 0..simplification_passes.len() {
@@ -56,6 +56,8 @@ impl<T: PrioritizedSimplificationPass> SimplificationPass for T {
     }
 }
 
+// simplifies const ops to their outcome
+// example: `4+6*3` becomes `30`
 struct ConstOpSimplificationPass {}
 
 impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
@@ -192,6 +194,8 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
     }
 }
 
+// simplifies NOOPs away
+// example: `3^1+0+4*1+2*0` becomes `7`
 struct NoopSimplificationPass {}
 
 impl PrioritizedSimplificationPass for NoopSimplificationPass {
@@ -366,9 +370,11 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
     }
 }
 
-struct SingleBraceSimplificationPass {}
+// simplifies cases like `(TOKEN)` to `TOKEN`
+// simplifies cases like `(((SOME TOKENS)))` to `(SOME TOKENS)`
+struct BraceSimplificationPass {}
 
-impl SimplificationPass for SingleBraceSimplificationPass {
+impl SimplificationPass for BraceSimplificationPass {
     fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         let mut open_braces = vec![];
         let mut finished_braces = vec![];
@@ -431,6 +437,8 @@ impl SimplificationPass for SingleBraceSimplificationPass {
     }
 }
 
+// simplifies multiplication sequences to their outcome
+// example: `3*a*1*b*2*a*a*b*c*2*a*b*2*a` becomes `24*(a^5)*(b^3)*c`
 struct MultiplicationSequenceSimplificationPass {}
 
 impl SimplificationPass for MultiplicationSequenceSimplificationPass {
