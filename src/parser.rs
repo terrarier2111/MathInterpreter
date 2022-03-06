@@ -990,7 +990,7 @@ fn replace_fn_calls(
     tokens: &mut Vec<Token>,
     parse_ctx: &ParseContext,
 ) -> Result<(), DiagnosticBuilder> {
-    let mut offset = 0_isize;
+    let mut offset = 0;
     for repl in fns.into_iter() {
         let adjusted_idx = (repl as isize + offset) as usize;
         let start = tokens.len();
@@ -1001,7 +1001,7 @@ fn replace_fn_calls(
                 parse_ctx.call_func(&lit, args)?
             } else {
                 // This should never happen
-                panic!()
+                unreachable!()
             }
         } else {
             panic!("{} | {:?}", adjusted_idx, tokens.get(adjusted_idx).unwrap())
@@ -1104,6 +1104,7 @@ pub(crate) fn parse_braced_call_region_backwards(
     Ok(Region::new(end, start, tokens))
 }
 
+/// Contract: The current token has to be an OpenParen token
 pub(crate) fn parse_braced_call_immediately(
     input: &String,
     tokens: &Vec<Token>,
