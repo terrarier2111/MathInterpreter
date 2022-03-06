@@ -536,17 +536,11 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
             if let Token::Op(_, kind) = token {
                 if kind == &OpKind::Multiply {
                     if let Some(token) = token_stream.look_ahead() {
-                        println!("has next: {:?}", token);
-                        println!(
-                            "curr: {:?}",
-                            token_stream.inner_tokens().get(token_stream.inner_idx())
-                        );
                         if TokenKind::Literal == token.kind() {
                             if multiplications.is_empty() {
                                 offset = token_stream.inner_idx();
                             }
                             multiplications.push(token.clone());
-                            println!("added mult!");
                             continue;
                         }
                     }
