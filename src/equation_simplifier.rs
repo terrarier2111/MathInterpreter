@@ -1,7 +1,9 @@
 use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenStream};
+use crate::shared::{LiteralKind, Number, OpKind, SignKind, Token, TokenKind, TokenStream};
 use crate::{_lib, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
 use rust_decimal::prelude::One;
+use std::collections::HashMap;
+use std::ops::Neg;
 
 // const SIMPLIFICATION_PASSES: [Box<dyn SimplificationPass>; 2] = [Box::new(ConstOpSimplificationPass {}), Box::new(NoopSimplificationPass {})];
 
@@ -11,10 +13,11 @@ use rust_decimal::prelude::One;
 // 0/x | This can't be simplified because we would need to prove that x != 0
 pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, DiagnosticBuilder> {
     let mut stream = TokenStream::new(input, tokens);
-    let simplification_passes: [Box<dyn SimplificationPass>; 3] = [
+    let simplification_passes: [Box<dyn SimplificationPass>; 4] = [
         Box::new(ConstOpSimplificationPass {}),
         Box::new(NoopSimplificationPass {}),
         Box::new(SingleBraceSimplificationPass {}),
+        Box::new(MultiplicationSequenceSimplificationPass {}),
     ];
     for _ in 0..simplification_passes.len() {
         for s_pass in simplification_passes.iter() {
@@ -428,6 +431,146 @@ impl SimplificationPass for SingleBraceSimplificationPass {
     }
 }
 
+struct MultiplicationSequenceSimplificationPass {}
+
+impl SimplificationPass for MultiplicationSequenceSimplificationPass {
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
+        fn apply_results(offset: usize, multiplications: &Vec<Token>, stream: &mut TokenStream) {
+            for _ in 0..(multiplications.len() * 2) {
+                stream.remove_token(offset);
+            }
+            let mut num_part = Number::ONE;
+            let mut var_mults = HashMap::new();
+            for token in multiplications.iter() {
+                if let Token::Literal(_, lit, sign, kind) = token {
+                    match kind {
+                        LiteralKind::Number => {
+                            let mut num = lit.parse::<Number>().unwrap();
+                            if sign == &SignKind::Minus {
+                                num = num.neg();
+                            }
+                            num_part = num_part * num;
+                        }
+                        LiteralKind::CharSeq => {
+                            if sign == &SignKind::Minus {
+                                num_part = num_part.neg();
+                            }
+                            if !var_mults.contains_key(lit) {
+                                var_mults.insert(lit.clone(), 1_usize);
+                            } else {
+                                *var_mults.get_mut(lit).unwrap() += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            let mut add_offset = 0;
+            if !num_part.is_one() {
+                stream
+                    .inner_tokens_mut()
+                    .insert(offset, Token::Op(usize::MAX, OpKind::Multiply));
+                let sign = match num_part.to_string().chars().next().unwrap() {
+                    '-' => SignKind::Minus,
+                    _ => SignKind::Default,
+                };
+                let mut buff = num_part.normalize().to_string();
+                if sign == SignKind::Minus {
+                    buff.remove(0);
+                }
+                stream.inner_tokens_mut().insert(
+                    offset + 1,
+                    Token::Literal(Span::NONE, buff, sign, LiteralKind::Number),
+                );
+                add_offset += 2;
+            }
+            // order the multiplications alphabetically
+            let mut mults = var_mults.into_iter().collect::<Vec<(String, usize)>>();
+            mults.sort_by(|x, y| x.0.cmp(&y.0));
+
+            // insert the results
+            for mult in mults {
+                if mult.1 == 1 {
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 1,
+                        Token::Literal(Span::NONE, mult.0, SignKind::Default, LiteralKind::CharSeq),
+                    );
+                    add_offset += 2;
+                } else {
+                    // This adds "*(offset.0 ^ offset.1)"
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset + 1, Token::OpenParen(usize::MAX));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 2,
+                        Token::Literal(Span::NONE, mult.0, SignKind::Default, LiteralKind::CharSeq),
+                    );
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset + 3, Token::Op(usize::MAX, OpKind::Pow));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 4,
+                        Token::Literal(
+                            Span::NONE,
+                            mult.1.to_string(),
+                            SignKind::Default,
+                            LiteralKind::Number,
+                        ),
+                    );
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset + 5, Token::ClosedParen(usize::MAX));
+                    add_offset += 6;
+                }
+            }
+        }
+
+        let mut offset = 0;
+        let mut multiplications = vec![];
+        while let Some(token) = token_stream.next() {
+            if let Token::Op(_, kind) = token {
+                if kind == &OpKind::Multiply {
+                    if let Some(token) = token_stream.look_ahead() {
+                        println!("has next: {:?}", token);
+                        println!(
+                            "curr: {:?}",
+                            token_stream.inner_tokens().get(token_stream.inner_idx())
+                        );
+                        if TokenKind::Literal == token.kind() {
+                            if multiplications.is_empty() {
+                                offset = token_stream.inner_idx();
+                            }
+                            multiplications.push(token.clone());
+                            println!("added mult!");
+                            continue;
+                        }
+                    }
+                } else {
+                    if !multiplications.is_empty() {
+                        apply_results(offset, &multiplications, token_stream);
+                        multiplications.clear();
+                    }
+                }
+            } else if token.kind() != TokenKind::Literal {
+                // FIXME: Is this correct?
+                if !multiplications.is_empty() {
+                    apply_results(offset, &multiplications, token_stream);
+                    multiplications.clear();
+                }
+            }
+        }
+        if !multiplications.is_empty() {
+            apply_results(offset, &multiplications, token_stream);
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn remove_token_or_braced_region(
     input: String, // FIXME: Can we just pass this by reference here?
     tokens: &mut Vec<Token>,
@@ -499,4 +642,10 @@ fn test() {
     assert_eq!(context.parse_ctx.get_input(), "8+((15+x)*2)+(34*y)");
     _lib::eval(String::from("4+(((x+4)))+((4*7+7))*3"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "4+(x+4)+105");
+    _lib::eval(
+        String::from("3*25*a*42*13*b*53*a*5*b*b*a*31*b"),
+        &mut context,
+    )
+    .unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "336404250*(a^3)*(b^4)");
 }

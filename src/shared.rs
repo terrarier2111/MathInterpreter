@@ -333,13 +333,21 @@ impl TokenStream {
         ret
     }
 
+    pub fn pop_token(&mut self) -> Token {
+        self.tokens.remove(self.idx - 1)
+    }
+
+    pub fn remove_token(&mut self, idx: usize) -> Token {
+        self.tokens.remove(idx)
+    }
+
     #[inline]
     pub fn look_back(&self) -> Option<&Token> {
         self.look_back_by(1)
     }
 
     pub fn look_back_by(&self, by: usize) -> Option<&Token> {
-        self.tokens.get(self.idx - by)
+        self.tokens.get(self.idx - by + 1)
     }
 
     #[inline]
@@ -348,7 +356,7 @@ impl TokenStream {
     }
 
     pub fn look_ahead_by(&self, by: usize) -> Option<&Token> {
-        self.tokens.get(self.idx + by)
+        self.tokens.get(self.idx + by - 1)
     }
 
     #[inline]

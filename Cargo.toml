@@ -6,6 +6,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rust_decimal = { version = "1.19", features = ["maths"] }
-rust_decimal_macros = "1.19"
+rust_decimal = { version = "1.22.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
+rust_decimal_macros = "1.22.0"
 colored = "2.0.0"
