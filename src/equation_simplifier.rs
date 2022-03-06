@@ -57,7 +57,7 @@ impl<T: PrioritizedSimplificationPass> SimplificationPass for T {
 }
 
 // simplifies const ops to their outcome
-// example: `4+6*3` becomes `30`
+// example: `2*5+20` becomes `30`
 struct ConstOpSimplificationPass {}
 
 impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
