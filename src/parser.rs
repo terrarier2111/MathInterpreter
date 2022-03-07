@@ -308,7 +308,7 @@ impl Parser {
                         match ans_mode {
                             ANSMode::WhenImplicit => {
                                 if let Token::Op(_, kind) = token {
-                                    if kind != OpKind::Plus && kind != OpKind::Minus {
+                                    if kind != OpKind::Add && kind != OpKind::Subtract {
                                         if let Some(last) = parse_context.last_result {
                                             let (last, sign) = num_to_num_and_sign(last);
                                             self.tokens.insert(
@@ -339,7 +339,7 @@ impl Parser {
                                                     span.start()
                                                 ));
                                             }
-                                            *sign = if kind == OpKind::Minus {
+                                            *sign = if kind == OpKind::Subtract {
                                                 SignKind::Minus
                                             } else {
                                                 SignKind::Plus
@@ -351,7 +351,7 @@ impl Parser {
                             ANSMode::Always => {
                                 if let Some(last) = parse_context.last_result {
                                     if let Token::Op(_, kind) = token {
-                                        if kind == OpKind::Plus || kind == OpKind::Minus {
+                                        if kind == OpKind::Add || kind == OpKind::Subtract {
                                             diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
                                         }
                                         let (last, sign) = num_to_num_and_sign(last);
@@ -385,7 +385,7 @@ impl Parser {
                                                 span.start()
                                             ));
                                         }
-                                        *sign = if kind == OpKind::Minus {
+                                        *sign = if kind == OpKind::Subtract {
                                             SignKind::Minus
                                         } else {
                                             SignKind::Plus
@@ -727,12 +727,12 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
                 return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location", sp);
             }
             Token::Op(_, op) => match op {
-                OpKind::Plus => {
+                OpKind::Add => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 + num_2)
                 }
-                OpKind::Minus => {
+                OpKind::Subtract => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 - num_2)

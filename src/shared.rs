@@ -147,8 +147,8 @@ impl ImplicitlyMultiply {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OpKind {
-    Plus,
-    Minus,
+    Add,
+    Subtract,
     Divide,
     Multiply,
     Modulo,
@@ -160,8 +160,8 @@ pub enum OpKind {
 impl OpKind {
     pub fn to_char(&self) -> char {
         match self {
-            OpKind::Plus => '+',
-            OpKind::Minus => '-',
+            OpKind::Add => '+',
+            OpKind::Subtract => '-',
             OpKind::Divide => '/',
             OpKind::Multiply => '*',
             OpKind::Modulo => '%',
@@ -172,8 +172,8 @@ impl OpKind {
 
     pub fn precedence(&self) -> u8 {
         match self {
-            OpKind::Plus => 2,
-            OpKind::Minus => 2,
+            OpKind::Add => 2,
+            OpKind::Subtract => 2,
             OpKind::Divide => 3,
             OpKind::Multiply => 3,
             OpKind::Modulo => 3, // TODO: Check this!
@@ -184,8 +184,8 @@ impl OpKind {
 
     pub fn associativity(&self) -> Associativity {
         match self {
-            OpKind::Plus => Associativity::Left,
-            OpKind::Minus => Associativity::Left,
+            OpKind::Add => Associativity::Left,
+            OpKind::Subtract => Associativity::Left,
             OpKind::Divide => Associativity::Left,
             OpKind::Multiply => Associativity::Left,
             OpKind::Modulo => Associativity::Left, // TODO: Check this!
@@ -196,8 +196,8 @@ impl OpKind {
 
     pub fn args(&self) -> ArgsKind {
         match self {
-            OpKind::Plus => ArgsKind::Both,
-            OpKind::Minus => ArgsKind::Both,
+            OpKind::Add => ArgsKind::Both,
+            OpKind::Subtract => ArgsKind::Both,
             OpKind::Divide => ArgsKind::Both,
             OpKind::Multiply => ArgsKind::Both,
             OpKind::Modulo => ArgsKind::Both,
@@ -208,8 +208,8 @@ impl OpKind {
 
     pub fn eval(&self, args: (Option<Number>, Option<Number>)) -> Number {
         match self {
-            OpKind::Plus => args.0.unwrap() + args.1.unwrap(),
-            OpKind::Minus => args.0.unwrap() - args.1.unwrap(),
+            OpKind::Add => args.0.unwrap() + args.1.unwrap(),
+            OpKind::Subtract => args.0.unwrap() - args.1.unwrap(),
             OpKind::Divide => args.0.unwrap() / args.1.unwrap(),
             OpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
             OpKind::Modulo => args.0.unwrap() % args.1.unwrap(),

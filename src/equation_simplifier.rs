@@ -150,7 +150,7 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Plus | OpKind::Minus => {
+                    OpKind::Add | OpKind::Subtract => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
                         if op_kind.is_valid(&args) {
@@ -323,7 +323,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
             if let Token::Op(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Plus => {
+                    OpKind::Add => {
                         if let Some(token) = &args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -349,7 +349,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Minus => {
+                    OpKind::Subtract => {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {

@@ -166,8 +166,8 @@ impl Lexer {
                 }
                 '+' | '-' | '−' => {
                     let sign = match c.1 {
-                        '-' | '−' => (SignKind::Minus, OpKind::Minus),
-                        _ => (SignKind::Plus, OpKind::Plus),
+                        '-' | '−' => (SignKind::Minus, OpKind::Subtract),
+                        _ => (SignKind::Plus, OpKind::Add),
                     };
                     if let Some(token) = token_type.take() {
                         tokens.push(token);
