@@ -13,11 +13,12 @@ use std::ops::Neg;
 // 0/x | This can't be simplified because we would need to prove that x != 0
 pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, DiagnosticBuilder> {
     let mut stream = TokenStream::new(input, tokens);
-    let simplification_passes: [Box<dyn SimplificationPass>; 4] = [
+    let simplification_passes: [Box<dyn SimplificationPass>; 5] = [
         Box::new(ConstOpSimplificationPass {}),
         Box::new(NoopSimplificationPass {}),
         Box::new(BraceSimplificationPass {}),
         Box::new(MultiplicationSequenceSimplificationPass {}),
+        Box::new(AddSubSequenceSimplificationPass {}),
     ];
     for _ in 0..simplification_passes.len() {
         for s_pass in simplification_passes.iter() {
@@ -477,9 +478,10 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
                 stream
                     .inner_tokens_mut()
                     .insert(offset, Token::Op(usize::MAX, OpKind::Multiply));
-                let sign = match num_part.to_string().chars().next().unwrap() {
-                    '-' => SignKind::Minus,
-                    _ => SignKind::Default,
+                let sign = if num_part.is_sign_negative() {
+                    SignKind::Minus
+                } else {
+                    SignKind::Default
                 };
                 let mut buff = num_part.normalize().to_string();
                 if sign == SignKind::Minus {
@@ -497,20 +499,17 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
 
             // insert the results
             for mult in mults {
+                stream
+                    .inner_tokens_mut()
+                    .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
                 if mult.1 == 1 {
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
                         Token::Literal(Span::NONE, mult.0, SignKind::Default, LiteralKind::CharSeq),
                     );
                     add_offset += 2;
                 } else {
-                    // This adds "*(offset.0 ^ offset.1)"
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
+                    // This adds "(offset.0 ^ offset.1)"
                     stream
                         .inner_tokens_mut()
                         .insert(offset + add_offset + 1, Token::OpenParen(usize::MAX));
@@ -571,6 +570,160 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
         }
         Ok(())
     }
+}
+
+// simplifies addition and subtraction sequences to their outcome
+// example: `35+27+e+a+e+a+b+a+a+a+a+a+a+a+a` becomes `62+a*10+b+e*2`
+struct AddSubSequenceSimplificationPass {}
+
+impl SimplificationPass for AddSubSequenceSimplificationPass {
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
+        fn apply_results(
+            offset: usize,
+            actions: &Vec<(Token, SequentialAction)>,
+            stream: &mut TokenStream,
+        ) {
+            for _ in 0..(actions.len() * 2) {
+                stream.remove_token(offset);
+            }
+            let mut num_part = Number::ZERO;
+            let mut var_adds = HashMap::new();
+            for token in actions.iter() {
+                if let Token::Literal(_, lit, sign, kind) = &token.0 {
+                    match kind {
+                        LiteralKind::Number => {
+                            let mut num = lit.parse::<Number>().unwrap();
+                            if sign == &SignKind::Minus {
+                                num = num.neg();
+                            }
+                            num_part = num_part + num;
+                        }
+                        LiteralKind::CharSeq => {
+                            let diff = if sign == &SignKind::Minus {
+                                -1
+                            } else {
+                                1_isize
+                            };
+                            if !var_adds.contains_key(lit) {
+                                var_adds.insert(lit.clone(), diff);
+                            } else {
+                                *var_adds.get_mut(lit).unwrap() += diff;
+                            }
+                        }
+                    }
+                }
+            }
+            let mut add_offset = 0;
+            if !num_part.is_zero() {
+                if num_part.is_sign_positive() {
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset, Token::Op(usize::MAX, OpKind::Add));
+                } else {
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset, Token::Op(usize::MAX, OpKind::Subtract));
+                }
+                let negative = num_part.is_sign_negative();
+                let mut buff = num_part.normalize().to_string();
+                if negative {
+                    buff.remove(0);
+                }
+                stream.inner_tokens_mut().insert(
+                    offset + 1,
+                    Token::Literal(Span::NONE, buff, SignKind::Default, LiteralKind::Number),
+                );
+                add_offset += 2;
+            }
+            // order the multiplications alphabetically
+            let mut adds = var_adds.into_iter().collect::<Vec<(String, isize)>>();
+            adds.sort_by(|x, y| x.0.cmp(&y.0));
+
+            // insert the results
+            for add in adds {
+                if add.1 > 0 {
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Add));
+                } else {
+                    stream
+                        .inner_tokens_mut()
+                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Subtract));
+                }
+
+                if add.1 == 1 || add.1 == -1 {
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 1,
+                        Token::Literal(Span::NONE, add.0, SignKind::Default, LiteralKind::CharSeq),
+                    );
+                    add_offset += 2;
+                } else {
+                    // This adds "(offset.0 * offset.1)"
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 1,
+                        Token::Literal(Span::NONE, add.0, SignKind::Default, LiteralKind::CharSeq),
+                    );
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 2,
+                        Token::Op(usize::MAX, OpKind::Multiply),
+                    );
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 3,
+                        Token::Literal(
+                            Span::NONE,
+                            add.1.to_string(),
+                            SignKind::Default,
+                            LiteralKind::Number,
+                        ),
+                    );
+                    add_offset += 4;
+                }
+            }
+        }
+
+        let mut offset = 0;
+        let mut actions = vec![];
+        while let Some(token) = token_stream.next() {
+            if let Token::Op(_, kind) = token {
+                if kind == &OpKind::Add || kind == &OpKind::Subtract {
+                    let kind = match kind {
+                        OpKind::Add => SequentialAction::Add,
+                        OpKind::Subtract => SequentialAction::Subtract,
+                        _ => unreachable!(),
+                    };
+                    if let Some(token) = token_stream.look_ahead() {
+                        if TokenKind::Literal == token.kind() {
+                            if actions.is_empty() {
+                                offset = token_stream.inner_idx();
+                            }
+                            actions.push((token.clone(), kind));
+                            continue;
+                        }
+                    }
+                } else {
+                    if !actions.is_empty() {
+                        apply_results(offset, &actions, token_stream);
+                        actions.clear();
+                    }
+                }
+            } else if token.kind() != TokenKind::Literal {
+                // FIXME: Is this correct?
+                if !actions.is_empty() {
+                    apply_results(offset, &actions, token_stream);
+                    actions.clear();
+                }
+            }
+        }
+        if !actions.is_empty() {
+            apply_results(offset, &actions, token_stream);
+        }
+        Ok(())
+    }
+}
+
+enum SequentialAction {
+    Add,
+    Subtract,
 }
 
 pub(crate) fn remove_token_or_braced_region(
@@ -650,4 +803,9 @@ fn test() {
     )
     .unwrap();
     assert_eq!(context.parse_ctx.get_input(), "336404250*(a^3)*(b^4)");
+    _lib::eval(
+        String::from("35+27+e+a+e+a+b+a+a+a+a+a+a+a+a"),
+        &mut context,
+    );
+    assert_eq!(context.parse_ctx.get_input(), "62+a*10+b+e*2");
 }
