@@ -17,7 +17,7 @@ pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, Diagnos
         Box::new(ConstOpSimplificationPass {}),
         Box::new(NoopSimplificationPass {}),
         Box::new(BraceSimplificationPass {}),
-        Box::new(MultiplicationSequenceSimplificationPass {}),
+        Box::new(OpSequenceSimplificationPass {}),
         Box::new(AddSubSequenceSimplificationPass {}),
     ];
     for _ in 0..simplification_passes.len() {
@@ -438,19 +438,24 @@ impl SimplificationPass for BraceSimplificationPass {
     }
 }
 
-// simplifies multiplication sequences to their outcome
-// example: `3*a*1*b*2*a*a*b*c*2*a*b*2*a` becomes `24*(a^5)*(b^3)*c`
-struct MultiplicationSequenceSimplificationPass {}
+// simplifies op sequences to their outcome
+// example: `3*a*1*b*2*a*a*b*c*2*a*b*2*a/d/e/d/d/d/e` becomes `24*(a^5)*(b^3)*c/(d*`
+struct OpSequenceSimplificationPass {}
 
-impl SimplificationPass for MultiplicationSequenceSimplificationPass {
+impl SimplificationPass for OpSequenceSimplificationPass {
     fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
-        fn apply_results(offset: usize, multiplications: &Vec<Token>, stream: &mut TokenStream) {
-            for _ in 0..(multiplications.len() * 2) {
+        fn apply_results(
+            offset: usize,
+            operations: &Vec<Token>,
+            op_kind: OpKind,
+            stream: &mut TokenStream,
+        ) {
+            for _ in 0..(operations.len() * 2) {
                 stream.remove_token(offset);
             }
             let mut num_part = Number::ONE;
-            let mut var_mults = HashMap::new();
-            for token in multiplications.iter() {
+            let mut var_ops = HashMap::new();
+            for token in operations.iter() {
                 if let Token::Literal(_, lit, sign, kind) = token {
                     match kind {
                         LiteralKind::Number => {
@@ -464,10 +469,10 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
                             if sign == &SignKind::Minus {
                                 num_part = num_part.neg();
                             }
-                            if !var_mults.contains_key(lit) {
-                                var_mults.insert(lit.clone(), 1_usize);
+                            if !var_ops.contains_key(lit) {
+                                var_ops.insert(lit.clone(), 1_usize);
                             } else {
-                                *var_mults.get_mut(lit).unwrap() += 1;
+                                *var_ops.get_mut(lit).unwrap() += 1;
                             }
                         }
                     }
@@ -477,7 +482,7 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
             if !num_part.is_one() {
                 stream
                     .inner_tokens_mut()
-                    .insert(offset, Token::Op(usize::MAX, OpKind::Multiply));
+                    .insert(offset, Token::Op(usize::MAX, op_kind));
                 let sign = if num_part.is_sign_negative() {
                     SignKind::Minus
                 } else {
@@ -494,18 +499,18 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
                 add_offset += 2;
             }
             // order the multiplications alphabetically
-            let mut mults = var_mults.into_iter().collect::<Vec<(String, usize)>>();
-            mults.sort_by(|x, y| x.0.cmp(&y.0));
+            let mut ops = var_ops.into_iter().collect::<Vec<(String, usize)>>();
+            ops.sort_by(|x, y| x.0.cmp(&y.0));
 
             // insert the results
-            for mult in mults {
+            for op in ops {
                 stream
                     .inner_tokens_mut()
-                    .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Multiply));
-                if mult.1 == 1 {
+                    .insert(offset + add_offset, Token::Op(usize::MAX, op_kind));
+                if op.1 == 1 {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
-                        Token::Literal(Span::NONE, mult.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(Span::NONE, op.0, SignKind::Default, LiteralKind::CharSeq),
                     );
                     add_offset += 2;
                 } else {
@@ -515,16 +520,25 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
                         .insert(offset + add_offset + 1, Token::OpenParen(usize::MAX));
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 2,
-                        Token::Literal(Span::NONE, mult.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(Span::NONE, op.0, SignKind::Default, LiteralKind::CharSeq),
                     );
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset + 3, Token::Op(usize::MAX, OpKind::Pow));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 3,
+                        Token::Op(
+                            usize::MAX,
+                            match op_kind {
+                                OpKind::Divide => OpKind::Multiply,
+                                OpKind::Multiply => OpKind::Pow,
+                                OpKind::Pow => OpKind::Multiply,
+                                _ => unreachable!(),
+                            },
+                        ),
+                    );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 4,
                         Token::Literal(
                             Span::NONE,
-                            mult.1.to_string(),
+                            op.1.to_string(),
                             SignKind::Default,
                             LiteralKind::Number,
                         ),
@@ -538,35 +552,47 @@ impl SimplificationPass for MultiplicationSequenceSimplificationPass {
         }
 
         let mut offset = 0;
-        let mut multiplications = vec![];
+        let mut last_kind = OpKind::OpenParen;
+        let mut operations = vec![];
         while let Some(token) = token_stream.next() {
             if let Token::Op(_, kind) = token {
-                if kind == &OpKind::Multiply {
+                if kind == &last_kind {
                     if let Some(token) = token_stream.look_ahead() {
                         if TokenKind::Literal == token.kind() {
-                            if multiplications.is_empty() {
+                            if operations.is_empty() {
                                 offset = token_stream.inner_idx();
                             }
-                            multiplications.push(token.clone());
-                            continue;
+                            operations.push(token.clone());
                         }
                     }
                 } else {
-                    if !multiplications.is_empty() {
-                        apply_results(offset, &multiplications, token_stream);
-                        multiplications.clear();
+                    let kind = *kind;
+                    if !operations.is_empty() {
+                        apply_results(offset, &operations, last_kind, token_stream);
+                        operations.clear();
+                    }
+                    if kind == OpKind::Multiply || kind == OpKind::Divide || kind == OpKind::Pow {
+                        last_kind = kind;
+                        if let Some(token) = token_stream.look_ahead() {
+                            if TokenKind::Literal == token.kind() {
+                                if operations.is_empty() {
+                                    offset = token_stream.inner_idx();
+                                }
+                                operations.push(token.clone());
+                            }
+                        }
                     }
                 }
             } else if token.kind() != TokenKind::Literal {
                 // FIXME: Is this correct?
-                if !multiplications.is_empty() {
-                    apply_results(offset, &multiplications, token_stream);
-                    multiplications.clear();
+                if !operations.is_empty() {
+                    apply_results(offset, &operations, last_kind, token_stream);
+                    operations.clear();
                 }
             }
         }
-        if !multiplications.is_empty() {
-            apply_results(offset, &multiplications, token_stream);
+        if !operations.is_empty() {
+            apply_results(offset, &operations, last_kind, token_stream);
         }
         Ok(())
     }
@@ -797,15 +823,13 @@ fn test() {
     assert_eq!(context.parse_ctx.get_input(), "8+((15+x)*2)+(34*y)");
     _lib::eval(String::from("4+(((x+4)))+((4*7+7))*3"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.get_input(), "4+(x+4)+105");
-    _lib::eval(
-        String::from("3*25*a*42*13*b*53*a*5*b*b*a*31*b"),
-        &mut context,
-    )
-    .unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "336404250*(a^3)*(b^4)");
+    _lib::eval(String::from("3*2*a*4*1*b*5*a*5*b*b*a*3*b"), &mut context).unwrap();
+    assert_eq!(context.parse_ctx.get_input(), "1800*(a^3)*(b^4)");
     _lib::eval(
         String::from("35+27+e+a+e+a+b+a+a+a+a+a+a+a+a"),
         &mut context,
     );
     assert_eq!(context.parse_ctx.get_input(), "62+a*10+b+e*2");
+    _lib::eval(String::from("25/a/a/b/a/b/a/b/b/4"), &mut context);
+    assert_eq!(context.parse_ctx.get_input(), "6.25/(a*4)/(b*4)");
 }
