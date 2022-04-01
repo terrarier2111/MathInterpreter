@@ -97,6 +97,7 @@ impl Parser {
                     Token::Eq(_) => {
                         multiplications.clear();
                         eq_location = token.0;
+                        break; // FIXME: Fix this for var defs when implementing recursive function defs
                     } // TODO: Detect third Eq and error!
                     Token::Comma(_) => arguments_list.push(token.0),
                     Token::Op(_, _) => {}
@@ -134,7 +135,7 @@ impl Parser {
             self.tokens
                 .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
         }
-        let mut bar = NONE;
+        /*let mut bar = NONE; // FIXME: Fix this for var defs when implementing recursive function defs
         let mut rec_eq = NONE;
         if eq_location != NONE {
             for token in self.tokens.iter().enumerate() {
@@ -185,7 +186,7 @@ impl Parser {
                     Token::None => unreachable!(),
                 }
             }
-        }
+        }*/
         let mut action = Action::Eval;
         if eq_location != NONE {
             if brace_start != NONE {
@@ -1380,4 +1381,6 @@ fn test() {
         .normalize()
         .to_string();
     assert_eq!(result, "0");
+    let result = _lib::eval(String::from("k = 34"), &mut context).unwrap().1;
+    assert!(result.is_none());
 }
