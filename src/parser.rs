@@ -472,13 +472,6 @@ impl Parser {
             Ok(val) => val,
             Err(err) => return ParseResult::new_err(err),
         };
-        fn tokens_to_string(tokens: &Vec<Token>) -> String {
-            let mut result = String::new();
-            for token in tokens.iter() {
-                result.push_str(token.to_raw().as_str());
-            }
-            result
-        }
         let result = tokens_to_string(&simplified);
         println!("{}", result);
         parse_ctx.input = result;
@@ -969,6 +962,8 @@ impl BuiltInFunction {
     }
 }
 
+/// Replaces the arg at the specified position with `(value)`
+/// returns the number of tokens added
 pub(crate) fn build_arg(
     value: &Vec<Token>,
     tokens: &mut Vec<Token>,
@@ -986,6 +981,8 @@ pub(crate) fn build_arg(
     value.len() + 1
 }
 
+/// Tries to replace all function calls provided by the fns parameter
+/// if they are actually functions.
 fn replace_fn_calls(
     fns: Vec<usize>,
     tokens: &mut Vec<Token>,
@@ -993,10 +990,15 @@ fn replace_fn_calls(
 ) -> Result<(), DiagnosticBuilder> {
     let mut offset = 0;
     for repl in fns.into_iter() {
-        let adjusted_idx = (repl as isize + offset) as usize;
+        let mut adjusted_idx = (repl as isize + offset) as usize;
         let start = tokens.len();
         let region = parse_braced_call_region(&parse_ctx.input, tokens, adjusted_idx)?;
+
+        // Remove the braces and their contents and retrieve their former content (the content which was removed)
         let args = region.erase_and_provide_args(tokens);
+
+        // Remove the function name which sits in front of the removed braces and call the function with that name and
+        // the previously retrieved arguments
         let result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
             if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
                 parse_ctx.call_func(&lit, args)?
@@ -1007,17 +1009,18 @@ fn replace_fn_calls(
         } else {
             panic!("{} | {:?}", adjusted_idx, tokens.get(adjusted_idx).unwrap())
         };
+
+        // Insert an open brace to make sure the function content is encapsulated and evaluated correctly
+        tokens.insert(adjusted_idx, Token::OpenParen(usize::MAX));
+        adjusted_idx += 1;
+        let result_len = result.len();
+
         for token in result.into_iter().enumerate() {
             tokens.insert(adjusted_idx + token.0, token.1);
         }
 
-        fn tokens_to_string(tokens: &Vec<Token>) -> String {
-            let mut result = String::new();
-            for token in tokens.iter() {
-                result.push_str(token.to_raw().as_str());
-            }
-            result
-        }
+        // Insert a closed brace to make sure the function content is encapsulated and evaluated correctly
+        tokens.insert(adjusted_idx + result_len, Token::ClosedParen(usize::MAX));
 
         fn tokens_to_string_ranged(tokens: &Vec<Token>, start: usize, end: usize) -> String {
             let mut result = String::new();
@@ -1035,6 +1038,9 @@ fn replace_fn_calls(
     Ok(())
 }
 
+/// Tries to parse a braced call region like `(34*63+e)`
+/// it errors, when there is an unequal amount of
+/// `(` and `)`
 pub(crate) fn parse_braced_call_region(
     input: &String,
     tokens: &Vec<Token>,
@@ -1323,6 +1329,16 @@ impl<T> ParseResult<T> {
     }
 }
 
+/// Used for debugging, transforms a list of tokens
+/// to their string representation
+fn tokens_to_string(tokens: &Vec<Token>) -> String {
+    let mut result = String::new();
+    for token in tokens.iter() {
+        result.push_str(token.to_raw().as_str());
+    }
+    result
+}
+
 #[test]
 fn test() {
     let mut context = _lib::new_eval_ctx(Config::new(
@@ -1383,4 +1399,12 @@ fn test() {
     assert_eq!(result, "0");
     let result = _lib::eval(String::from("k = 34"), &mut context).unwrap().1;
     assert!(result.is_none());
+    _lib::eval(String::from("f(x) = x+4*3"), &mut context).unwrap();
+    let result = _lib::eval(String::from("f(2)*2"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "28");
 }
