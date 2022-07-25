@@ -1,7 +1,11 @@
 use crate::diagnostic_builder;
-use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::OpKind::{Divide, Modulo, Multiply, Pow};
-use crate::shared::{LiteralKind, OpKind, SignKind, Token, TokenKind};
+use crate::error::DiagnosticBuilder;
+use crate::shared::BinOpKind::{Divide, Modulo, Multiply, Pow};
+use crate::shared::Token::EOF;
+use crate::shared::{
+    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace,
+};
+use crate::span::{GenericSpan, Span};
 
 pub(crate) struct Lexer();
 
@@ -14,17 +18,20 @@ impl Lexer {
     pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut token_type = None;
-        for c in input.chars().enumerate() {
-            let x = c.1;
+        let chars = input.chars().collect::<Vec<_>>();
+        for i in 0..chars.len() {
+            // SAFETY: This is safe because we only to to char's length - 1
+            // and chars can't be updated after we got it's length
+            let x = *unsafe { chars.get_unchecked(i) };
             if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
                 if let Some(token) = token_type.take() {
                     // Check if the literal ends with a dot
-                    if let Token::Literal(span, buf, _, kind) = &token {
-                        if kind == &LiteralKind::Number && buf.ends_with('.') {
+                    if let Token::Literal(lit_tok) = &token {
+                        if lit_tok.kind == LiteralKind::Number && lit_tok.content.ends_with('.') {
                             return diagnostic_builder!(
                                 input.clone(),
                                 "`.` at wrong location",
-                                span.end() - 1
+                                lit_tok.span.end() - 1
                             );
                         }
                     }
@@ -35,32 +42,32 @@ impl Lexer {
                 '|' => {
                     if !tokens.is_empty()
                         && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Eq | TokenKind::Sign
+                            tokens.last().unwrap(),
+                            Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq) | Token::Sign(..)
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::VertBar(c.0))
+                    Some(Token::VertBar(i))
                 }
                 '=' => {
                     if !tokens.is_empty()
                         && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Eq | TokenKind::Sign
+                            tokens.last().unwrap(),
+                            Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq) | Token::Sign(..)
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Eq(c.0))
+                    Some(Token::BinOp(i, BinOpKind::Eq))
                 }
                 '(' => {
                     if !tokens.is_empty()
@@ -69,105 +76,107 @@ impl Lexer {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::OpenParen(c.0))
+                    Some(Token::OpenParen(i))
                 }
                 ')' => {
-                    let last = tokens.last().unwrap().kind();
-                    if !tokens.is_empty() && matches!(last, TokenKind::VertBar | TokenKind::Eq) {
+                    let last = tokens.last().unwrap();
+                    if !tokens.is_empty()
+                        && matches!(last, Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq))
+                    {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    if !tokens.is_empty() && matches!(last, TokenKind::Sign) {
+                    if !tokens.is_empty() && matches!(last, Token::Sign(..)) {
                         unimplemented!("Signs in front of `(` are currently unsupported")
                     }
-                    Some(Token::ClosedParen(c.0))
+                    Some(Token::ClosedParen(i))
                 }
                 ' ' => Some(Token::None),
                 ',' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Op
+                            TokenKind::VertBar | TokenKind::BinOp
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Comma(c.0))
+                    Some(Token::Comma(i))
                 }
                 '*' | '×' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Op(c.0, Multiply))
+                    Some(Token::BinOp(i, Multiply))
                 }
                 '/' | ':' | '÷' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location.", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Op(c.0, Divide))
+                    Some(Token::BinOp(i, Divide))
                 }
                 '%' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Op(c.0, Modulo))
+                    Some(Token::BinOp(i, Modulo))
                 }
                 '^' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Op | TokenKind::Eq | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
                             format!("`{}` at wrong location", x),
-                            c.0
+                            i
                         );
                     }
-                    Some(Token::Op(c.0, Pow))
+                    Some(Token::BinOp(i, Pow))
                 }
                 '+' | '-' | '−' => {
-                    let sign = match c.1 {
-                        '-' | '−' => (SignKind::Minus, OpKind::Subtract),
-                        _ => (SignKind::Plus, OpKind::Add),
+                    let sign = match x {
+                        '-' | '−' => (SignKind::Minus, BinOpKind::Subtract),
+                        _ => (SignKind::Plus, BinOpKind::Add),
                     };
                     if let Some(token) = token_type.take() {
                         tokens.push(token);
@@ -180,18 +189,18 @@ impl Lexer {
                             return diagnostic_builder!(
                                 input.clone(),
                                 format!("`{}` at wrong location", x),
-                                c.0
+                                i
                             );
                         }
                         match &tokens.last().unwrap() {
-                            Token::Op(_, _) | Token::OpenParen(_) | Token::Eq(_) => {
-                                Some(Token::Sign(c.0, sign.0))
+                            Token::BinOp(_, _) | Token::OpenParen(_) => {
+                                Some(Token::Sign(i, sign.0))
                             }
-                            _ => Some(Token::Op(c.0, sign.1)),
+                            _ => Some(Token::BinOp(i, sign.1)),
                         }
                     } else {
                         // This has to be an Op instead of a Sign because of abs modes.
-                        Some(Token::Op(c.0, sign.1))
+                        Some(Token::BinOp(i, sign.1))
                     }
                 }
                 _ => {
@@ -204,7 +213,7 @@ impl Lexer {
                                     return diagnostic_builder!(
                                         input.clone(),
                                         "`.` at wrong location",
-                                        c.0
+                                        i
                                     );
                                 }
                                 let sign = if !tokens.is_empty() {
@@ -212,49 +221,52 @@ impl Lexer {
                                         tokens.pop();
                                         (idx, kind)
                                     } else {
-                                        (c.0, SignKind::Default)
+                                        (i, SignKind::Default)
                                     }
                                 } else {
-                                    (c.0, SignKind::Default)
+                                    (i, SignKind::Default)
                                 };
-                                token_type = Some(Token::Literal(
-                                    Span::from_idx(sign.0),
-                                    String::from(x),
-                                    sign.1,
-                                    if alphabetic {
+                                token_type = Some(Token::Literal(LiteralToken {
+                                    span: Span::single_token(sign.0),
+                                    content: String::from(x),
+                                    sign: sign.1,
+                                    kind: if alphabetic {
                                         LiteralKind::CharSeq
                                     } else {
                                         LiteralKind::Number
                                     },
-                                ));
+                                    trailing_space: TrailingSpace::from(
+                                        chars.get(i + 1).map_or(false, |next| *next == ' '),
+                                    ),
+                                }));
                             }
                             Some(token) => {
                                 // This handles the case in which the last token **is** part of the current token's literal
                                 match token {
-                                    Token::Literal(span, buffer, _, prev_kind) => {
-                                        if alphabetic && prev_kind != &mut LiteralKind::CharSeq {
-                                            *prev_kind = LiteralKind::CharSeq;
+                                    Token::Literal(lit_tok) => {
+                                        if alphabetic && lit_tok.kind != LiteralKind::CharSeq {
+                                            lit_tok.kind = LiteralKind::CharSeq;
                                         }
                                         // Check for previous dots
-                                        if prev_kind == &mut LiteralKind::Number
+                                        if lit_tok.kind == LiteralKind::Number
                                             && x == '.'
-                                            && buffer.contains('.')
+                                            && lit_tok.content.contains('.')
                                         {
                                             return diagnostic_builder!(
                                                 input.clone(),
                                                 "`.` at wrong location",
-                                                c.0
+                                                i
                                             );
                                         }
-                                        buffer.push(x);
-                                        span.expand_hi();
+                                        lit_tok.content.push(x);
+                                        lit_tok.span.expand_hi();
                                     }
                                     _ => unreachable!(),
                                 }
                             }
                         }
                     } else {
-                        tokens.push(Token::Other(c.0, x));
+                        tokens.push(Token::Other(i, x));
                     }
                     None
                 }
@@ -280,6 +292,7 @@ impl Lexer {
         if let Some(token) = token_type.take() {
             tokens.push(token);
         }
+        tokens.push(EOF(chars.len()));
         Ok(tokens)
     }
 }

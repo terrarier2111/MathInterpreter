@@ -1,77 +1,7 @@
+use crate::span::Span;
 use colored::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-
-#[derive(Copy, Clone, Debug)]
-pub struct Span {
-    start: usize,
-    end: usize,
-}
-
-impl Span {
-    pub const NONE: Span = Span::new(usize::MAX, usize::MAX);
-
-    pub const fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    pub const fn from_idx(idx: usize) -> Self {
-        if idx == usize::MAX {
-            Self::NONE
-        } else {
-            Self::new(idx, idx + 1)
-        }
-    }
-
-    #[inline]
-    pub const fn is_none(&self) -> bool {
-        self.end == usize::MAX && self.start == usize::MAX
-    }
-
-    #[inline]
-    pub fn shrink_lo(&mut self) {
-        if self.end - self.start >= 1 {
-            self.start += 1;
-        } else {
-            panic!("Tried to shrink a zero sized span.")
-        }
-    }
-
-    #[inline]
-    pub fn shrink_hi(&mut self) {
-        if self.end - self.start >= 1 {
-            self.end -= 1;
-        } else {
-            panic!("Tried to shrink a zero sized span.")
-        }
-    }
-
-    #[inline]
-    pub fn expand_lo(&mut self) {
-        // TODO: Should this be renamed to grow_*?
-        if self.start > 0 {
-            self.start -= 1;
-        } else {
-            panic!("Tried to shrink a zero sized span.")
-        }
-    }
-
-    #[inline]
-    pub fn expand_hi(&mut self) {
-        // TODO: Should this be renamed to grow_*?
-        self.end += 1;
-    }
-
-    #[inline]
-    pub fn start(&self) -> usize {
-        self.start
-    }
-
-    #[inline]
-    pub fn end(&self) -> usize {
-        self.end
-    }
-}
 
 #[derive(Debug)]
 pub struct DiagnosticBuilder {
@@ -229,14 +159,14 @@ macro_rules! diagnostic_builder {
         Err(DiagnosticBuilder::from_input_and_err_with_span(
             $input,
             $error.to_string(),
-            Span::from_idx($sp),
+            Span::single_token($sp),
         ))
     };
     ($input:expr, $error:expr, $sp:expr) => {
         Err(DiagnosticBuilder::from_input_and_err_with_span(
             $input,
             $error,
-            Span::from_idx($sp),
+            Span::single_token($sp),
         ))
     };
 }

@@ -11,12 +11,10 @@ pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Num
             return ParseResult::new_err(diagnostic_builder);
         }
     };
-    let mut parser = Parser::new(tokens);
-    let parsed = parser.parse(
-        &mut eval_ctx.parse_ctx,
-        eval_ctx.config.ans_mode,
-        eval_ctx.config.mode,
-    );
+    println!("lexed stuff!");
+    let mut parser = Parser::new(tokens, &mut eval_ctx.parse_ctx, eval_ctx.config.ans_mode);
+    println!("starting parsing!");
+    let parsed = parser.parse(eval_ctx.config.mode);
     parsed
 }
 

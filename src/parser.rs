@@ -1,481 +1,536 @@
-use crate::_lib::Mode;
+use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode};
+use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
+use crate::equation_evaluator::EvalWalker;
 use crate::equation_simplifier::simplify;
-use crate::error::{DiagnosticBuilder, Span};
+use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    num_to_num_and_sign, Associativity, ImplicitlyMultiply, LiteralKind, Number, OpKind, SignKind,
-    Token, TokenKind,
+    num_to_num_and_sign, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken,
+    Number, SignKind, Token, TokenKind, TrailingSpace,
 };
+use crate::span::Span;
+use crate::token_stream::TokenStream;
 use crate::{
-    diagnostic_builder, diagnostic_builder_spanned, pluralize, register_builtin_func,
-    register_const, ANSMode, Config, DiagnosticsConfig, _lib,
+    _lib, diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
+    register_builtin_func, register_const, ANSMode, Config, DiagnosticsConfig, Mode,
 };
 use rust_decimal::MathematicalOps;
 use std::collections::HashMap;
-use std::ops::{Neg, Range};
+use std::ops::Neg;
+use std::rc::Rc;
 
 const NONE: usize = usize::MAX;
 
-pub(crate) struct Parser {
-    tokens: Vec<Token>,
+pub(crate) struct Parser<'a> {
+    token_stream: TokenStream,
+    parse_ctx: &'a mut ParseContext,
+    ans_mode: ANSMode,
+    curr: Token,
     action: Action,
 }
 
-impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(tokens: Vec<Token>, parse_ctx: &'a mut ParseContext, ans_mode: ANSMode) -> Self {
+        let mut token_stream = TokenStream::new(tokens);
+        let curr = token_stream.get_next_and_advance().unwrap().clone();
         Self {
-            tokens,
+            token_stream,
+            parse_ctx,
+            ans_mode,
+            curr,
             action: Action::Eval,
         }
     }
 
-    fn handle_vars_and_fn_calls(&mut self, parse_context: &mut ParseContext) -> PResult<()> {
-        let mut replaced_tokens = vec![];
-        let mut possibly_replaced_funcs = vec![];
-        for token in self.tokens.iter().enumerate() {
-            if let Token::Literal(_, content, sign, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq {
-                    if parse_context.exists_var(content) {
-                        let mut var = parse_context.lookup_var(content);
-                        if sign == &SignKind::Minus {
-                            // Reverses the sign of `var` in order to later remove it and to later get the resulting sign from it.
-                            var = var.neg();
-                        }
-                        replaced_tokens.push((token.0, var))
-                    } else if parse_context.exists_fn(content) {
-                        possibly_replaced_funcs.push(token.0);
-                    }
-                }
+    pub(crate) fn parse(&mut self, mode: Mode) -> ParseResult<Option<Number>> {
+        fn tokens_to_string(tokens: &Box<[Token]>) -> String {
+            let mut result = String::new();
+            for token in tokens.iter() {
+                result.push_str(token.to_raw().as_str());
             }
+            result
         }
-        for token in replaced_tokens {
-            let (number, sign) = num_to_num_and_sign(token.1);
-            self.tokens[token.0] =
-                Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
-        }
-        replace_fn_calls(possibly_replaced_funcs, &mut self.tokens, parse_context)?;
-        Ok(())
-    }
-
-    pub(crate) fn parse(
-        &mut self,
-        parse_context: &mut ParseContext,
-        ans_mode: ANSMode,
-        mode: Mode,
-    ) -> ParseResult<Option<Number>> {
-        match mode {
-            Mode::Eval => self.parse_eval(parse_context, ans_mode),
-            Mode::Simplify => {
-                match self.parse_simplify(parse_context).0 {
-                    Ok(_) => {}
-                    Err(err) => return ParseResult::new_err(err),
-                };
-                return ParseResult::default();
-            }
-            Mode::Solve => {
-                todo!()
-            }
-        }
-    }
-
-    fn parse_eval(
-        &mut self,
-        parse_context: &mut ParseContext,
-        ans_mode: ANSMode,
-    ) -> ParseResult<Option<Number>> {
-        let mut eq_location = NONE;
-        let mut brace_start = NONE;
-        let mut brace_end = NONE;
-        let mut arguments_list = vec![];
-
-        let mut last_token_mult = ImplicitlyMultiply::Never;
-        let mut multiplications = vec![];
-        for token in self.tokens.iter().enumerate() {
-            if eq_location == NONE {
-                match token.1 {
-                    Token::OpenParen(_) => brace_start = token.0,
-                    Token::ClosedParen(_) => brace_end = token.0,
-                    Token::Eq(_) => {
-                        multiplications.clear();
-                        eq_location = token.0;
-                        break; // FIXME: Fix this for var defs when implementing recursive function defs
-                    } // TODO: Detect third Eq and error!
-                    Token::Comma(_) => arguments_list.push(token.0),
-                    Token::Op(_, _) => {}
-                    Token::Literal(..) => {}
-                    Token::Sign(_, _) => {}
-                    Token::Other(sp, raw) => {
-                        return ParseResult(diagnostic_builder!(
-                            parse_context.input.clone(),
-                            format!("Unexpected token `{}`", raw),
-                            *sp
-                        ))
-                    }
-                    Token::VertBar(_) => {}
-                    Token::Region(_, _) => panic!(),
-                    Token::None => unreachable!(),
-                }
-            }
-            let curr_token_mult = if let Token::Literal(_, buff, _, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq
-                    && (parse_context.exists_fn(buff) || parse_context.exists_builtin_func(buff))
-                {
-                    ImplicitlyMultiply::Never
-                } else {
-                    ImplicitlyMultiply::Always
-                }
-            } else {
-                token.1.implicitly_multiply_left()
-            };
-            if curr_token_mult.can_multiply_with_left(last_token_mult) {
-                multiplications.push(token.0);
-            }
-            last_token_mult = curr_token_mult;
-        }
-        for x in multiplications.iter().enumerate() {
-            self.tokens
-                .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
-        }
-        /*let mut bar = NONE; // FIXME: Fix this for var defs when implementing recursive function defs
-        let mut rec_eq = NONE;
-        if eq_location != NONE {
-            for token in self.tokens.iter().enumerate() {
-                match token.1 {
-                    Token::OpenParen(_) => brace_start = token.0,
-                    Token::ClosedParen(_) => brace_end = token.0,
-                    Token::Eq(sp) => {
-                        if token.0 != eq_location {
-                            if bar == NONE {
-                                return ParseResult(diagnostic_builder!(
-                                    parse_context.input.clone(),
-                                    "Found second `=` before `|`",
-                                    *sp
-                                ));
-                            }
-                            rec_eq = token.0;
-                            break;
-                        }
-                    }
-                    Token::VertBar(sp) => {
-                        if bar != NONE {
-                            return ParseResult(
-                                diagnostic_builder!(
-                                    parse_context.input.clone(),
-                                    "Found second `|`",
-                                    *sp
-                                )
-                                .map_err(|mut x| {
-                                    x.note("only one `|` is allowed".to_string());
-                                    x
-                                }),
-                            );
-                        }
-                        bar = token.0;
-                    }
-                    Token::Comma(_) => arguments_list.push(token.0),
-                    Token::Op(_, _) => {}
-                    Token::Literal(..) => {}
-                    Token::Sign(_, _) => {}
-                    Token::Other(sp, raw) => {
-                        return ParseResult(diagnostic_builder!(
-                            parse_context.input.clone(),
-                            format!("Unexpected token `{}`", raw),
-                            *sp
-                        ))
-                    }
-                    Token::Region(_, _) => panic!(),
-                    Token::None => unreachable!(),
-                }
-            }
-        }*/
-        let mut action = Action::Eval;
-        if eq_location != NONE {
-            if brace_start != NONE {
-                if brace_end == NONE {
-                    return ParseResult(diagnostic_builder_spanned!(
-                        parse_context.input.clone(),
-                        "`(` at wrong location",
-                        self.tokens.get(brace_start).unwrap().span()
-                    ));
-                }
-                let func_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
-                    if kind == LiteralKind::CharSeq {
-                        x
-                    } else {
-                        return ParseResult(diagnostic_builder!(
-                            parse_context.input.clone(),
-                            "No function name was given"
-                        ));
-                    }
-                } else {
-                    return ParseResult(diagnostic_builder!(
-                        parse_context.input.clone(),
-                        "No function name was given"
-                    ));
-                };
-                let mut arguments = vec![];
-                for x in 0..eq_location {
-                    let token = self.tokens.remove(0);
-                    if x % 2 == 1 {
-                        if let Token::Literal(_, var, _, kind) = token {
-                            if kind == LiteralKind::CharSeq {
-                                arguments.push(var);
-                            }
-                        }
-                    }
-                }
-                if eq_location
-                    != ((1 + 1 + ((2 * (arguments.len() as isize)) - 1).max(0) + 1) as usize)
-                {
-                    // function name, `(`, function arguments with `,` but last argument has no `,` so - 1, `)`
-                    // FIXME: Is this check actually required?
-                    return ParseResult(diagnostic_builder!(
-                        parse_context.input.clone(),
-                        "`=` at wrong location"
-                    ));
-                }
-                action = Action::DefineFunc(func_name, arguments);
-            } else if brace_end != NONE {
-                return ParseResult(diagnostic_builder!(
-                    parse_context.input.clone(),
-                    "`)` at wrong location"
-                ));
-            } else {
-                let var_name = if let Token::Literal(_, x, _, kind) = self.tokens.remove(0) {
-                    if kind == LiteralKind::CharSeq {
-                        x
-                    } else {
-                        return ParseResult(diagnostic_builder!(
-                            parse_context.input.clone(),
-                            "No function name was given"
-                        ));
-                    }
-                } else {
-                    return ParseResult(diagnostic_builder!(
-                        parse_context.input.clone(),
-                        "No function name was given"
-                    ));
-                };
-                if eq_location != 1 {
-                    return ParseResult(diagnostic_builder!(
-                        parse_context.input.clone(),
-                        "`=` at wrong location"
-                    ));
-                }
-                action = Action::DefineVar(var_name);
-            }
-        }
-        self.action = action;
-        match self.action.clone() {
-            Action::DefineVar(name) => {
-                // Perform variable and function lookup and evaluation
-                match self.handle_vars_and_fn_calls(parse_context) {
-                    Ok(_) => {}
-                    Err(err) => return ParseResult::new_err(err),
-                };
-
-                // Perform the evaluation of the variable definition
-                let rpn = match shunting_yard(self.tokens.clone(), parse_context) {
-                    Ok(val) => val,
-                    Err(err) => return ParseResult::new_err(err),
-                };
-                let result = match eval_rpn(rpn, parse_context) {
-                    Ok(val) => val,
-                    Err(err) => return ParseResult::new_err(err),
-                };
-                match parse_context.register_var(&name, result) {
-                    Ok(_) => {}
-                    Err(err) => return ParseResult::new_err(err),
-                }
-                ParseResult(Ok((Some(result), None)))
-            }
-            Action::DefineFunc(name, args) => {
-                let func = match Function::new(
-                    name.clone(),
-                    args.clone(),
-                    self.tokens.clone(),
-                    parse_context,
-                ) {
-                    Ok(val) => val,
-                    Err(err) => return ParseResult::new_err(err),
-                };
-                parse_context.register_func(func);
-                ParseResult::default()
-            }
-            Action::Eval => {
-                let mut diagnostic_builder = DiagnosticBuilder::new(parse_context.input.clone());
-                if !self.tokens.is_empty() {
-                    let token = self.tokens.get(0).unwrap().clone();
-                    if TokenKind::Op == token.kind() {
-                        match ans_mode {
-                            ANSMode::WhenImplicit => {
-                                if let Token::Op(_, kind) = token {
-                                    if kind != OpKind::Add && kind != OpKind::Subtract {
-                                        if let Some(last) = parse_context.last_result {
-                                            let (last, sign) = num_to_num_and_sign(last);
-                                            self.tokens.insert(
-                                                0,
-                                                Token::Literal(
-                                                    Span::NONE,
-                                                    last.to_string(),
-                                                    sign,
-                                                    LiteralKind::Number,
-                                                ),
-                                            );
-                                        } else {
-                                            return ParseResult(diagnostic_builder!(
-                                            parse_context.input.clone(),
-                                            "There is no previous result on which we could operate on!",
-                                            0
-                                        ));
-                                        }
-                                    } else {
-                                        diagnostic_builder.warn_spanned(format!("The `{}` is handled as a sign and not an operator because of the ans mode.", kind.to_char()), Span::from_idx(0));
-                                        self.tokens.remove(0);
-                                        let following = self.tokens.get_mut(0).unwrap();
-                                        if let Token::Literal(span, _, sign, _) = following {
-                                            if sign != &SignKind::Default {
-                                                return ParseResult(diagnostic_builder!(
-                                                    parse_context.input.clone(),
-                                                    "You can't put 2 signs in front of a number!",
-                                                    span.start()
-                                                ));
-                                            }
-                                            *sign = if kind == OpKind::Subtract {
-                                                SignKind::Minus
-                                            } else {
-                                                SignKind::Plus
-                                            };
-                                        }
-                                    }
-                                }
-                            }
-                            ANSMode::Always => {
-                                if let Some(last) = parse_context.last_result {
-                                    if let Token::Op(_, kind) = token {
-                                        if kind == OpKind::Add || kind == OpKind::Subtract {
-                                            diagnostic_builder.warn_spanned(format!("The `{}` is handled as an operator and not a sign because of the ans mode.", kind.to_char()), Span::from_idx(0));
-                                        }
-                                        let (last, sign) = num_to_num_and_sign(last);
-                                        self.tokens.insert(
-                                            0,
-                                            Token::Literal(
-                                                Span::NONE,
-                                                last.to_string(),
-                                                sign,
-                                                LiteralKind::Number,
-                                            ),
-                                        );
-                                    }
-                                } else {
-                                    return ParseResult(diagnostic_builder!(
-                                        parse_context.input.clone(),
-                                        "There is no previous result on which we could operate on!",
-                                        0
-                                    ));
-                                }
-                            }
-                            ANSMode::Never => {
-                                if let Token::Op(_, kind) = token {
-                                    self.tokens.remove(0);
-                                    let following = self.tokens.get_mut(0).unwrap();
-                                    if let Token::Literal(span, _, sign, _) = following {
-                                        if sign != &SignKind::Default {
-                                            return ParseResult(diagnostic_builder!(
-                                                parse_context.input.clone(),
-                                                "You can't put 2 signs in front of a number!",
-                                                span.start()
-                                            ));
-                                        }
-                                        *sign = if kind == OpKind::Subtract {
-                                            SignKind::Minus
-                                        } else {
-                                            SignKind::Plus
-                                        };
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Perform variable and function lookup and evaluation
-                match self.handle_vars_and_fn_calls(parse_context) {
-                    Ok(_) => {}
-                    Err(err) => return ParseResult::new_err(err),
-                }
-
-                // Perform the evaluation of the input statement
-                let rpn = match shunting_yard(self.tokens.clone(), parse_context) {
-                    Ok(val) => val,
-                    Err(err) => return ParseResult::new_err(err),
-                };
-                let result = match eval_rpn(rpn, parse_context) {
-                    Ok(val) => val,
-                    Err(err) => return ParseResult::new_err(err),
-                }
-                .normalize();
-                parse_context.last_result = Some(result.clone());
-                ParseResult(Ok((Some(result), None)))
-            }
-            Action::DefineRecFunc(_, _, _) => {
-                todo!()
-            }
-        }
-    }
-
-    fn parse_simplify(&mut self, parse_ctx: &mut ParseContext) -> ParseResult<()> {
         // Make implicit multiplications explicit!
-        let mut eq_location = NONE;
+        println!("parse 0");
         let mut last_token_mult = ImplicitlyMultiply::Never;
         let mut multiplications = vec![];
-        for token in self.tokens.iter().enumerate() {
-            if eq_location == NONE {
-                match token.1 {
-                    Token::Eq(_) => {
-                        multiplications.clear();
-                        eq_location = token.0;
-                    } // TODO: Detect third Eq and error!
-                    Token::Other(sp, raw) => {
-                        return ParseResult(diagnostic_builder!(
-                            parse_ctx.input.clone(),
-                            format!("Unexpected token `{}`", raw),
-                            *sp
-                        ))
+        let mut idx = 0;
+        let eq_idx = {
+            let mut idx: Option<usize> = None;
+            while !self.check_binop(BinOpKind::Eq) {
+                if self.check(TokenKind::EOF) {
+                    idx = None;
+                    break;
+                }
+                self.advance();
+                match idx {
+                    None => {
+                        idx = Some(1);
                     }
-                    Token::Region(_, _) => panic!(),
-                    Token::None => unreachable!(),
-                    _ => {}
+                    Some(mut idx) => {
+                        idx += 1;
+                    }
                 }
             }
-            let curr_token_mult = if let Token::Literal(_, buff, _, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq
-                    && (parse_ctx.exists_fn(buff) || parse_ctx.exists_builtin_func(buff))
+            idx
+        };
+        self.reset();
+        if let Some(eq_idx) = eq_idx {
+            idx = eq_idx + 1;
+            self.token_stream.skip(eq_idx);
+            self.advance();
+        }
+
+        println!("check eof");
+        while !self.eat(TokenKind::EOF) {
+            let curr_token_mult = if let Some(lit) = self.parse_lit() {
+                if self.parse_ctx.exists_fn(&lit.content)
+                    || self.parse_ctx.exists_builtin_func(&lit.content)
                 {
                     ImplicitlyMultiply::Never
                 } else {
                     ImplicitlyMultiply::Always
                 }
             } else {
-                token.1.implicitly_multiply_left()
+                let ret = self.curr.implicitly_multiply_left();
+                self.advance();
+                ret
             };
             if curr_token_mult.can_multiply_with_left(last_token_mult) {
-                multiplications.push(token.0);
+                multiplications.push(idx);
             }
             last_token_mult = curr_token_mult;
+            idx += 1;
         }
+        let mut tokens = self.token_stream.internal_tokens().into_vec();
         for x in multiplications.iter().enumerate() {
-            self.tokens
-                .insert(x.0 + *x.1, Token::Op(x.0, OpKind::Multiply));
+            tokens.insert(x.0 + *x.1, Token::BinOp(x.0, BinOpKind::Multiply));
         }
+        self.token_stream
+            .replace_internal_tokens(tokens.into_boxed_slice());
+        self.reset();
 
+        println!(
+            "tokens: {}",
+            tokens_to_string(&self.token_stream.internal_tokens())
+        );
+
+        println!("getting head!");
+        let head_expr = match self.parse_expr() {
+            Ok(val) => val,
+            Err(err) => {
+                return ParseResult::new_err(err);
+            }
+        };
+        println!("do stuff!");
+
+        match mode {
+            Mode::Eval => {
+                println!("evaluating!");
+                let val = equation_evaluator::eval(&mut self.parse_ctx, head_expr);
+                match val {
+                    Ok(val) => ParseResult::new_ok(val),
+                    Err(err) => ParseResult::new_err(err),
+                }
+            }
+            Mode::Simplify => ParseResult(self.parse_simplify().0.map(|val| (None, val.1))),
+            Mode::Solve => unimplemented!(),
+        }
+    }
+
+    fn parse_simplify(&mut self) -> ParseResult<()> {
         // Simplify the statement
-        let simplified = match simplify(parse_ctx.input.clone(), self.tokens.clone()) {
+        let simplified = match simplify(
+            self.parse_ctx.input.clone(),
+            self.token_stream.internal_tokens().to_vec(),
+        ) {
             Ok(val) => val,
             Err(err) => return ParseResult::new_err(err),
         };
+
+        /// Used for debugging, transforms a list of tokens
+        /// to their string representation
+        fn tokens_to_string(tokens: &Vec<Token>) -> String {
+            let mut result = String::new();
+            for token in tokens.iter() {
+                result.push_str(token.to_raw().as_str());
+            }
+            result
+        }
+
         let result = tokens_to_string(&simplified);
         println!("{}", result);
-        parse_ctx.input = result;
+        self.parse_ctx.input = result;
         ParseResult(Ok(((), None)))
+    }
+
+    fn try_parse_function(&mut self) -> PResult<Option<AstNode>> {
+        if let Some(lit) = self.parse_lit() {
+            if lit.trailing_space != TrailingSpace::Yes && self.eat(TokenKind::OpenParen) {
+                let mut params = vec![];
+                while !self.check(TokenKind::ClosedParen) {
+                    let param = self.parse_expr()?;
+                    params.push(param);
+
+                    if !self.eat(TokenKind::Comma) {
+                        // FIXME: should we error if there is a trailing comma?
+                        break;
+                    }
+                }
+
+                if !self.eat(TokenKind::ClosedParen) {
+                    return diagnostic_builder_spanned!(
+                        self.parse_ctx.input.clone(),
+                        "expected `)`",
+                        Span::single_token(self.curr.span().end) // FIXME: should we add 1 to the passed value?
+                    );
+                }
+
+                if params.len() > 1 {
+                    Ok(Some(AstNode::FuncCallOrFuncDef(FuncCallOrFuncDefNode {
+                        name: lit.content,
+                        params: params.into_boxed_slice(),
+                    })))
+                } else {
+                    Ok(Some(AstNode::MaybeFunc(MaybeFuncNode {
+                        name: lit.content,
+                        param: params.pop().map(|x| Box::new(x)),
+                    })))
+                }
+            } else {
+                self.go_back();
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_expr(&mut self) -> PResult<AstNode> {
+        /*match &self.curr {
+            Token::OpenParen(_) => self.parse_paren_expr(),
+            // Token::ClosedParen(_) => {}
+            // Token::VertBar(_) => {}
+            // Token::Comma(_) => {}
+            // Token::Op(_, _) => {}
+            Token::Literal(_) => {
+                println!("curr: {}", self.curr);
+                if let Some(func) = self.try_parse_function()? {
+                    Ok(func)
+                } else if self
+                    .token_stream
+                    .look_ahead(1, |x| x.kind() == TokenKind::BinOp)
+                {
+                    println!("curr: {}", self.curr);
+                    self.parse_binop()
+                } else {
+                    Ok(AstNode::Lit(self.parse_lit().unwrap()))
+                }
+            }
+            // Token::Region(_, _) => {}
+            _ => diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                format!("expected expression, found {}", self.curr.to_raw()),
+                self.curr.span()
+            ),
+        }*/
+        self.parse_binop()
+    }
+
+    fn parse_binop(&mut self) -> PResult<AstNode> {
+        println!("parsing binop!");
+        let lhs = self.parse_primary()?;
+        println!("doing other binop stuff!");
+        self.parse_bin_op_rhs(0, lhs)
+    }
+
+    fn parse_bin_op_rhs(&mut self, prec: u8, mut lhs: AstNode) -> PResult<AstNode> {
+        loop {
+            let bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
+                Some(*bin_op)
+            } else {
+                None
+            };
+
+            // If this is a binop that binds at least as tightly as the current binop,
+            // consume it, otherwise we are done.
+            if let Some(bin_op) = bin_op {
+                println!("checking stuff!");
+                if bin_op.precedence() < prec {
+                    return Ok(lhs);
+                }
+            } else {
+                return Ok(lhs);
+            }
+            let bin_op = bin_op.unwrap();
+            self.eat(TokenKind::BinOp);
+
+            println!("parsing rhs..!");
+            let mut rhs = Some(self.parse_primary()?);
+            println!("rhs: {:?}", rhs);
+            // let last_mult = self.token_stream.look_back(1, |token| token.implicitly_multiply_left());
+
+            // If BinOp binds less tightly with RHS than the operator after RHS, let
+            // the pending operator take RHS as its LHS.
+            let /*mut */next_bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
+                Some(*bin_op)
+            } else {
+                None
+            };
+
+            /*if next_bin_op.is_none() {
+                if self.ans_mode == ANSMode::Always || (self.ans_mode == ANSMode::WhenImplicit &&
+                    last_mult.map_or(false, |last_mult| self.curr.implicitly_multiply_left().can_multiply_with_left(last_mult))) {
+                    // FIXME: all these conversions from/to boxed slices seem pretty inefficient, should we go back to using only a simple vec?
+                    let mut curr_toks = self.token_stream.internal_tokens().into_vec();
+                    curr_toks.insert(self.token_stream.cursor(), Token::BinOp(NONE, BinOpKind::Multiply));
+                    self.token_stream.replace_internal_tokens(curr_toks.into_boxed_slice());
+                    // we now can pretend like we found a multiply token all along
+                    next_bin_op = Some(BinOpKind::Multiply);
+                }
+            }*/
+
+            match next_bin_op {
+                None => {
+                    return Ok(AstNode::BinOp(BinOpNode {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs.take().unwrap()),
+                        op: bin_op,
+                    }));
+                }
+                Some(next_bin_op) => {
+                    if bin_op.precedence() < next_bin_op.precedence() {
+                        rhs = rhs.map(|rhs| {
+                            self.parse_bin_op_rhs(bin_op.precedence() + 1, rhs).unwrap()
+                        });
+                    }
+                    lhs = AstNode::BinOp(BinOpNode {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs.take().unwrap()),
+                        op: bin_op,
+                    });
+                }
+            }
+        }
+    }
+
+    fn parse_paren_expr(&mut self) -> PResult<AstNode> {
+        if !self.eat(TokenKind::OpenParen) {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "expected `{`",
+                self.curr.span()
+            );
+        }
+        let expr = self.parse_expr()?;
+
+        if !self.eat(TokenKind::ClosedParen) {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "expected `}`",
+                self.curr.span()
+            );
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_primary(&mut self) -> PResult<AstNode> {
+        println!("parsing primary!");
+        match &self.curr {
+            Token::OpenParen(_) => self.parse_paren_expr(),
+            // Token::VertBar(_) => {} // FIXME: how are we supposed to handle this?
+            // Token::Literal(_) => self.parse_binop(),
+            Token::Literal(_) => {
+                // FIXME: check if the literal code is okay
+                println!("curr: {}", self.curr);
+                if let Some(func) = self.try_parse_function()? {
+                    Ok(func)
+                } else {
+                    Ok(AstNode::Lit(self.parse_lit().unwrap()))
+                }
+            }
+            // Token::Region(_, _) => {} // FIXME: how are we supposed to handle this?
+            _ => diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                format!(
+                    "expected primary, found {} of type {:?}",
+                    self.curr.to_raw(),
+                    self.curr.kind()
+                ),
+                self.curr.span()
+            ),
+        }
+    }
+
+    /*
+    fn parse_primary(&mut self) -> Result<AstNode, ()> {
+        println!("curr: {:?}", self.curr);
+        match &self.curr {
+            Token::Ident(_, content) => {
+                if self
+                    .token_stream
+                    .look_ahead(1, |token| token.to_type() == TokenType::OpenParen)
+                {
+                    self.parse_call() // FIXME: handle errors properly!
+                                      /*} else if self.token_stream.look_ahead(1, |token| token.to_type() == TokenType::Dot) {
+                                      // FIXME: parse field access/struct method call
+                                       */
+                } else if self
+                    .token_stream
+                    .look_ahead(1, |token| token.to_type() == TokenType::OpenCurly)
+                {
+                    self.parse_struct_constructor()
+                } else {
+                    // FIXME: handle the rest!
+                    let content = content.clone();
+                    self.advance();
+                    Ok(AstNode::Ident(content))
+                }
+            }
+            //#!Token::Keyword(_, _) => {}
+            // Token::StrLit(_, _) => {}
+            Token::NumLit(_, _) => self.parse_number_expr(),
+            Token::OpenParen(_) => self.parse_paren_expr(),
+            Token::OpenBracket(_) => self.parse_array_constructor(),
+            //#!Token::OpenCurly(_) => {}
+            // Token::OpenBracket(_) => {}
+            // Token::Eq(_) => {}
+            // Token::Colon(_) => {}
+            //#!Token::Semi(_) => {}
+            // Token::Apostrophe(_) => {}
+            // Token::OpenAngle(_) => {}
+            // Token::Star(_) => {}
+            // Token::Question(_) => {}
+            // Token::Underscore(_) => {}
+            // Token::Comment(_, _) => Ok(None), // FIXME: this is currently filtered in the tokenstream
+            Token::EOF(_) => Err(()),
+            _ => Err(()),
+        }
+    }
+
+    fn parse_bin_op(&mut self) -> Result<AstNode, ()> {
+        let lhs = self.parse_primary()?;
+        self.parse_bin_op_rhs(0, lhs)
+    }
+
+    fn parse_bin_op_rhs(&mut self, prec: usize, mut lhs: AstNode) -> Result<AstNode, ()> {
+        // If this is a binop, find its precedence.
+        loop {
+            let bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
+                Some(*bin_op)
+            } else {
+                None
+            };
+
+            // If this is a binop that binds at least as tightly as the current binop,
+            // consume it, otherwise we are done.
+            if let Some(bin_op) = bin_op {
+                if bin_op.precedence() < prec {
+                    return Ok(lhs);
+                }
+            } else {
+                return Ok(lhs);
+            }
+            let bin_op = bin_op.unwrap();
+            self.eat(TokenType::BinOp);
+
+            let mut rhs = Some(self.parse_primary()?);
+
+            if rhs.is_some() {
+                // If BinOp binds less tightly with RHS than the operator after RHS, let
+                // the pending operator take RHS as its LHS.
+                let next_bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
+                    Some(*bin_op)
+                } else {
+                    None
+                };
+
+                if let Some(next_bin_op) = next_bin_op {
+                    if bin_op.precedence() < next_bin_op.precedence() {
+                        rhs = rhs.map(|rhs| {
+                            self.parse_bin_op_rhs(bin_op.precedence() + 1, rhs).unwrap()
+                        });
+                        if rhs.is_none() {
+                            return Err(()); // FIXME: is this correct?
+                        }
+                    }
+                } else {
+                    return Ok(AstNode::BinaryExpr(Box::new(BinaryExprNode {
+                        lhs,
+                        rhs: rhs.take().unwrap(),
+                        op: bin_op,
+                    })));
+                }
+
+                lhs = AstNode::BinaryExpr(Box::new(BinaryExprNode {
+                    lhs,
+                    rhs: rhs.take().unwrap(),
+                    op: bin_op,
+                }))
+            }
+        }
+    }
+    */
+
+    fn parse_lit(&mut self) -> Option<LiteralToken> {
+        if let Token::Literal(lit) = &self.curr {
+            let ret = Some(lit.clone());
+            self.advance();
+            ret
+        } else {
+            None
+        }
+    }
+
+    fn check(&self, token: TokenKind) -> bool {
+        self.curr.kind() == token
+    }
+
+    fn eat(&mut self, token: TokenKind) -> bool {
+        if self.curr.kind() == token {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_binop(&self, binop: BinOpKind) -> bool {
+        if let Token::BinOp(_, kind) = &self.curr {
+            *kind == binop
+        } else {
+            false
+        }
+    }
+
+    fn eat_binop(&mut self, binop: BinOpKind) -> bool {
+        if let Token::BinOp(_, kind) = &self.curr {
+            if *kind == binop {
+                self.advance();
+                return true;
+            }
+        }
+        false
+    }
+
+    fn advance(&mut self) {
+        if let Some(next) = self.token_stream.get_next() {
+            self.curr = next.clone();
+        }
+        self.token_stream.advance();
+    }
+
+    fn go_back(&mut self) {
+        // we need to go back twice in order for us to stay 1 token behind the parser's current token
+        self.token_stream.go_back();
+        self.token_stream.go_back();
+        self.advance();
+    }
+
+    fn reset(&mut self) {
+        self.token_stream.reset();
+        let curr = self.token_stream.get_next_and_advance().unwrap().clone();
+        self.curr = curr;
     }
 }
 
@@ -552,9 +607,9 @@ impl ParseContext {
         self.vars.contains_key(&*name)
     }
 
-    pub fn lookup_var(&self, name: &String) -> Number {
+    pub fn lookup_var(&self, name: &String) -> Option<Number> {
         let name = name.to_lowercase();
-        (*self.vars.get(name.as_str()).unwrap()).1
+        self.vars.get(name.as_str()).map(|x| x.1.clone())
     }
 
     pub fn register_var(
@@ -603,12 +658,25 @@ impl ParseContext {
         self.funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
     }
 
-    pub fn call_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
+    pub fn try_call_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<AstNode>> {
         let name = name.to_lowercase();
         let func = self.funcs.get(&*name);
         match func {
-            None => self.call_builtin_func(&name, args),
-            Some(func) => func.build_tokens(args, self),
+            None => {
+                let result = self.call_builtin_func(&name, args);
+                result.map(|pr| {
+                    pr.map(|num| {
+                        AstNode::Lit(LiteralToken {
+                            span: Span::NONE,
+                            content: num.to_string(),
+                            sign: SignKind::Default,
+                            kind: LiteralKind::Number,
+                            trailing_space: TrailingSpace::Maybe,
+                        })
+                    })
+                })
+            }
+            Some(func) => Some(func.build_tokens(args, self)),
         }
     }
 
@@ -617,19 +685,23 @@ impl ParseContext {
         self.funcs.insert(name, func);
     }
 
-    fn exists_builtin_func(&self, name: &String) -> bool {
+    pub(crate) fn exists_builtin_func(&self, name: &String) -> bool {
         let name = name.to_lowercase();
         self.builtin_funcs.contains_key(&*name)
     }
 
-    fn call_builtin_func(&self, name: &String, args: Vec<Vec<Token>>) -> PResult<Vec<Token>> {
+    fn call_builtin_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
-            None => diagnostic_builder!(
+            None =>
+            /*diagnostic_builder!(
                 self.input.clone(),
-                format!("There is no function such as `{}`.", name)
-            ),
-            Some(func) => func.build_tokens(args, self),
+                format!("There is no function such as `{}`.", name) // FIXME: emmit this error message somewhere else!
+            )*/
+            {
+                None
+            }
+            Some(func) => Some(func.build_tokens(args, self)),
         }
     }
 
@@ -639,18 +711,19 @@ impl ParseContext {
     }
 }
 
+/*
 pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
     let mut output = vec![];
-    let mut operator_stack: Vec<OpKind> = vec![];
+    let mut operator_stack: Vec<BinOpKind> = vec![];
     for token in input {
-        match token {
-            Token::OpenParen(_) => operator_stack.push(OpKind::OpenParen),
+        match &token {
+            Token::OpenParen(_) => operator_stack.push(BinOpKind::OpenParen),
             Token::ClosedParen(_) => loop {
                 if let Some(op) = operator_stack.pop() {
-                    if op == OpKind::OpenParen {
+                    if op == BinOpKind::OpenParen {
                         break;
                     }
-                    output.push(Token::Op(usize::MAX, op));
+                    output.push(Token::BinOp(usize::MAX, op));
                 } else {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
@@ -662,22 +735,22 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
             Token::Eq(_) => {}
             Token::VertBar(_) => {}
             Token::Comma(_) => {}
-            Token::Op(_, op) => {
+            Token::BinOp(_, op) => {
                 while !operator_stack.is_empty()
                     && (op.precedence() < operator_stack.last().unwrap().precedence()
                         || (op.precedence() == operator_stack.last().unwrap().precedence()
                             && op.associativity() == Associativity::Left))
                 {
-                    output.push(Token::Op(usize::MAX, operator_stack.pop().unwrap()));
+                    output.push(Token::BinOp(usize::MAX, operator_stack.pop().unwrap()));
                 }
-                operator_stack.push(op);
+                operator_stack.push(*op);
             }
-            Token::Literal(sp, _, _, kind) => {
-                if kind == LiteralKind::CharSeq {
+            Token::Literal(lit_tok) => {
+                if lit_tok.kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
                         "Failed to evaluate literal correctly",
-                        sp
+                        lit_tok.span
                     );
                 } else {
                     output.push(token);
@@ -702,7 +775,7 @@ pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PRes
         }
     }
     for operator in operator_stack.into_iter().rev() {
-        output.push(Token::Op(usize::MAX, operator));
+        output.push(Token::BinOp(usize::MAX, operator));
     }
     Ok(output)
 }
@@ -720,49 +793,49 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
             Token::Comma(sp) => {
                 return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location", sp);
             }
-            Token::Op(_, op) => match op {
-                OpKind::Add => {
+            Token::BinOp(_, op) => match op {
+                BinOpKind::Add => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 + num_2)
                 }
-                OpKind::Subtract => {
+                BinOpKind::Subtract => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 - num_2)
                 }
-                OpKind::Divide => {
+                BinOpKind::Divide => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 / num_2)
                 }
-                OpKind::Multiply => {
+                BinOpKind::Multiply => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 * num_2)
                 }
-                OpKind::Modulo => {
+                BinOpKind::Modulo => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1 % num_2)
                 }
-                OpKind::Pow => {
+                BinOpKind::Pow => {
                     let num_2 = num_stack.pop().unwrap();
                     let num_1 = num_stack.pop().unwrap();
                     num_stack.push(num_1.powd(num_2))
                 }
-                OpKind::OpenParen => unreachable!(),
+                BinOpKind::OpenParen => unreachable!(),
             },
-            Token::Literal(sp, lit, sign, kind) => {
-                if kind == LiteralKind::CharSeq {
+            Token::Literal(lit_tok) => {
+                if lit_tok.kind == LiteralKind::CharSeq {
                     return diagnostic_builder_spanned!(
                         parse_ctx.input.clone(),
-                        format!("Failed to evaluate literal `{}` correctly", lit),
-                        sp
+                        format!("Failed to evaluate literal `{}` correctly", lit_tok.content),
+                        lit_tok.span
                     );
                 } else {
-                    let mut num = lit.parse::<Number>().unwrap();
-                    if sign == SignKind::Minus {
+                    let mut num = lit_tok.content.parse::<Number>().unwrap();
+                    if lit_tok.sign == SignKind::Minus {
                         num = num.neg();
                     }
                     num_stack.push(num);
@@ -781,13 +854,13 @@ pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<N
         );
     }
     Ok(num_stack.pop().unwrap())
-}
+}*/
 
 #[derive(Debug, Clone)]
 pub enum Action {
-    DefineVar(String),                                  // var name
-    DefineFunc(String, Vec<String>),                    // function name, function arguments
-    DefineRecFunc(String, Vec<String>, (usize, usize)), // function name, function arguments, (recursive min idx, recursive min val)
+    DefineVar(String),                                    // var name
+    DefineFunc(String, Box<[String]>),                    // function name, function arguments
+    DefineRecFunc(String, Box<[String]>, (usize, usize)), // function name, function arguments, (recursive min idx, recursive min val)
     Eval,
 }
 
@@ -810,77 +883,81 @@ pub enum ActionKind {
     Eval,
 }
 
+struct FunctionWalker<'a> {
+    parse_ctx: &'a ParseContext,
+    arg_replacements: HashMap<String, Number>,
+}
+
+impl LitWalkerMut for FunctionWalker<'_> {
+    fn walk_lit(&self, node: &mut LiteralToken) -> Result<(), DiagnosticBuilder> {
+        if node.kind == LiteralKind::CharSeq {
+            if let Some(val) = self.arg_replacements.get(&node.content) {
+                node.kind = LiteralKind::Number;
+                node.content = val.to_string();
+            }
+        }
+        Ok(())
+    }
+}
+
+struct FunctionInitValidator<'a> {
+    parse_ctx: &'a ParseContext,
+    arg_names: &'a Box<[String]>,
+    func_name: &'a String,
+}
+
+impl LitWalker for FunctionInitValidator<'_> {
+    fn walk_lit(&self, lit_tok: &LiteralToken) -> Result<(), DiagnosticBuilder> {
+        if lit_tok.kind == LiteralKind::CharSeq
+            && !self.arg_names.contains(&lit_tok.content)
+            && !self.parse_ctx.exists_const(&lit_tok.content)
+            && (!self.parse_ctx.exists_fn(&lit_tok.content) || &lit_tok.content == self.func_name)
+        {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "Not an argument or const",
+                lit_tok.span
+            );
+        }
+        Ok(())
+    }
+}
+
 pub(crate) struct Function {
     name: String,
-    args: usize,
-    arg_refs: Vec<(usize, usize)>, // position, arg index
-    tokens: Vec<Token>,
+    ast: AstNode,
+    args: Box<[String]>,
 }
 
 impl Function {
     pub fn new(
         name: String,
-        arg_names: Vec<String>,
-        mut tokens: Vec<Token>,
+        arg_names: Box<[String]>,
+        structure: AstNode,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
-        // Detect arguments
-        let mut arg_refs = vec![];
-        for token in tokens.iter().enumerate() {
-            if let Token::Literal(_, lit, _, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq && arg_names.contains(lit) {
-                    let mut loc = usize::MAX;
-                    for arg in arg_names.iter().enumerate() {
-                        if arg.1 == lit {
-                            loc = arg.0;
-                            break;
-                        }
-                    }
-                    if loc == usize::MAX {
-                        unreachable!()
-                    }
-                    arg_refs.push((token.0, loc));
-                }
-            }
-        }
-
-        // Perform constant replacement
-        let mut replace_consts = vec![];
-        for token in tokens.iter().enumerate().rev() {
-            if let Token::Literal(span, str, _, kind) = token.1 {
-                if *kind == LiteralKind::CharSeq && !arg_names.contains(str) {
-                    if parse_ctx.exists_const(str) {
-                        replace_consts.push((token.0, parse_ctx.lookup_const(str, parse_ctx)));
-                    } else if !parse_ctx.exists_fn(str) || str == &name {
-                        return diagnostic_builder_spanned!(
-                            parse_ctx.input.clone(),
-                            "Not an argument or const",
-                            *span
-                        );
-                    }
-                }
-            }
-        }
-        for x in replace_consts {
-            let (number, sign) = num_to_num_and_sign(x.1?);
-            tokens[x.0] = Token::Literal(Span::NONE, number.to_string(), sign, LiteralKind::Number);
-        }
+        // verify arguments are valid
+        let validator = FunctionInitValidator {
+            parse_ctx,
+            arg_names: &arg_names,
+            func_name: &name,
+        };
+        validator.walk(&structure)?;
 
         Ok(Self {
             name,
-            args: arg_names.len(),
-            arg_refs,
-            tokens,
+            ast: structure,
+            args: arg_names,
         })
     }
 
     pub fn build_tokens(
         &self,
-        arg_values: Vec<Vec<Token>>,
+        arg_values: Box<[AstNode]>,
         parse_ctx: &ParseContext,
-    ) -> PResult<Vec<Token>> {
-        if self.args != arg_values.len() {
-            let args_txt = if self.args == 1 {
+    ) -> PResult<AstNode> {
+        if self.args.len() != arg_values.len() {
+            let args_txt = if self.args.len() == 1 {
                 "argument"
             } else {
                 "arguments"
@@ -888,29 +965,27 @@ impl Function {
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
                 format!(
-                    "Expected {} {}, got {}",
-                    self.args,
+                    "expected {} {}, got {}",
+                    self.args.len(),
                     args_txt,
                     arg_values.len()
                 )
             );
         }
-        let mut tokens = self.tokens.clone();
-        let mut offset = 0;
-        for arg in self.arg_refs.iter() {
-            offset += build_arg(&arg_values[arg.1], &mut tokens, offset, arg.0);
+        let mut arg_replacements = HashMap::new();
+        for val in arg_values.into_iter().enumerate() {
+            let eval_walker = EvalWalker { ctx: parse_ctx };
+            arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
         }
-        let mut replace_fns = vec![];
-        for x in tokens.iter().enumerate() {
-            if let Token::Literal(_, lit, ..) = x.1 {
-                if parse_ctx.exists_fn(lit) && lit != &self.name {
-                    // FIXME: Better detection for cyclic calls!
-                    replace_fns.push(x.0);
-                }
-            }
-        }
-        replace_fn_calls(replace_fns, &mut tokens, parse_ctx)?;
-        Ok(tokens)
+
+        let mut walker = FunctionWalker {
+            parse_ctx,
+            arg_replacements,
+        };
+
+        let mut result = self.ast.clone();
+        walker.walk(&mut result)?;
+        Ok(result)
     }
 }
 
@@ -931,9 +1006,9 @@ impl BuiltInFunction {
 
     pub fn build_tokens(
         &self,
-        arg_values: Vec<Vec<Token>>,
+        arg_values: Box<[AstNode]>,
         parse_ctx: &ParseContext,
-    ) -> PResult<Vec<Token>> {
+    ) -> PResult<Number> {
         if self.arg_count != arg_values.len() {
             let args_txt = pluralize!(self.arg_count);
             return diagnostic_builder!(
@@ -948,319 +1023,16 @@ impl BuiltInFunction {
         }
         let mut args = vec![];
         for arg in arg_values.iter() {
-            let rpn = shunting_yard(arg.clone(), parse_ctx)?;
+            /*let rpn = shunting_yard(arg.clone(), parse_ctx)?;
             let result = eval_rpn(rpn, parse_ctx)?;
-            args.push(result);
+            args.push(result);*/
+            let eval_walker = EvalWalker { ctx: parse_ctx };
+            let walked = eval_walker.walk(arg);
+            args.push(walked?);
         }
-        let (result, sign) = num_to_num_and_sign((self.inner)(args));
-        Ok(vec![Token::Literal(
-            Span::NONE,
-            result.to_string(),
-            sign,
-            LiteralKind::Number,
-        )])
-    }
-}
-
-/// Replaces the arg at the specified position with `(value)`
-/// returns the number of tokens added
-pub(crate) fn build_arg(
-    value: &Vec<Token>,
-    tokens: &mut Vec<Token>,
-    offset: usize,
-    token_pos: usize,
-) -> usize {
-    let pos = token_pos + offset;
-    tokens[pos] = Token::OpenParen(usize::MAX);
-    let end = pos + 1 + value.len();
-    for token in value.into_iter().enumerate() {
-        tokens.insert(pos + 1 + token.0, token.1.clone());
-    }
-    tokens.insert(end, Token::ClosedParen(usize::MAX));
-
-    value.len() + 1
-}
-
-/// Tries to replace all function calls provided by the fns parameter
-/// if they are actually functions.
-fn replace_fn_calls(
-    fns: Vec<usize>,
-    tokens: &mut Vec<Token>,
-    parse_ctx: &ParseContext,
-) -> Result<(), DiagnosticBuilder> {
-    let mut offset = 0;
-    for repl in fns.into_iter() {
-        let mut adjusted_idx = (repl as isize + offset) as usize;
-        let start = tokens.len();
-        let region = parse_braced_call_region(&parse_ctx.input, tokens, adjusted_idx)?;
-
-        // Remove the braces and their contents and retrieve their former content (the content which was removed)
-        let args = region.erase_and_provide_args(tokens);
-
-        // Remove the function name which sits in front of the removed braces and call the function with that name and
-        // the previously retrieved arguments
-        let result = if let Token::Literal(..) = tokens.get(adjusted_idx).unwrap() {
-            if let Token::Literal(_, lit, ..) = tokens.remove(adjusted_idx) {
-                parse_ctx.call_func(&lit, args)?
-            } else {
-                // This should never happen
-                unreachable!()
-            }
-        } else {
-            panic!("{} | {:?}", adjusted_idx, tokens.get(adjusted_idx).unwrap())
-        };
-
-        // Insert an open brace to make sure the function content is encapsulated and evaluated correctly
-        tokens.insert(adjusted_idx, Token::OpenParen(usize::MAX));
-        adjusted_idx += 1;
-        let result_len = result.len();
-
-        for token in result.into_iter().enumerate() {
-            tokens.insert(adjusted_idx + token.0, token.1);
-        }
-
-        // Insert a closed brace to make sure the function content is encapsulated and evaluated correctly
-        tokens.insert(adjusted_idx + result_len, Token::ClosedParen(usize::MAX));
-
-        fn tokens_to_string_ranged(tokens: &Vec<Token>, start: usize, end: usize) -> String {
-            let mut result = String::new();
-            for token in tokens.iter().skip(start).enumerate() {
-                if token.0 >= end {
-                    break;
-                }
-                result.push_str(token.1.to_raw().as_str());
-            }
-            result
-        }
-
-        offset += tokens.len() as isize - start as isize;
-    }
-    Ok(())
-}
-
-/// Tries to parse a braced call region like `(34*63+e)`
-/// it errors, when there is an unequal amount of
-/// `(` and `)`
-pub(crate) fn parse_braced_call_region(
-    input: &String,
-    tokens: &Vec<Token>,
-    parse_start: usize,
-) -> Result<Region, DiagnosticBuilder> {
-    let mut start = usize::MAX;
-    let mut end = usize::MAX;
-    let mut open = 0;
-    for x in tokens.iter().enumerate().skip(parse_start) {
-        if let Token::OpenParen(_) = x.1 {
-            if open == 0 {
-                start = x.0;
-            }
-            open += 1;
-        } else if let Token::ClosedParen(_) = x.1 {
-            open -= 1;
-            if open == 0 {
-                end = x.0;
-                break;
-            }
-        }
-    }
-    if open != 0 {
-        return diagnostic_builder!(
-            input.clone(),
-            "The brace count during region parsing didn't match!"
-        );
-    }
-    Ok(Region::new(start, end, tokens))
-}
-
-pub(crate) fn parse_braced_call_region_backwards(
-    input: &String,
-    tokens: &Vec<Token>,
-    parse_start: usize,
-) -> Result<Region, DiagnosticBuilder> {
-    let mut start = usize::MAX;
-    let mut end = usize::MAX;
-    let mut closed = 0;
-    for x in tokens
-        .iter()
-        .enumerate()
-        .rev()
-        .skip(tokens.len() - parse_start - 1)
-    {
-        if let Token::ClosedParen(_) = x.1 {
-            if closed == 0 {
-                start = x.0;
-            }
-            closed += 1;
-        } else if let Token::OpenParen(_) = x.1 {
-            closed -= 1;
-            if closed == 0 {
-                end = x.0;
-                break;
-            }
-        }
-    }
-    if closed != 0 {
-        return diagnostic_builder!(
-            input.clone(),
-            format!(
-                "The brace count during region parsing didn't match! {}",
-                closed
-            )
-        );
-    }
-    Ok(Region::new(end, start, tokens))
-}
-
-/// Contract: The current token has to be an OpenParen token
-pub(crate) fn parse_braced_call_immediately(
-    input: &String,
-    tokens: &Vec<Token>,
-    parse_start: usize,
-) -> Option<Result<Region, DiagnosticBuilder>> {
-    if let Token::OpenParen(_) = tokens.get(parse_start).unwrap() {
-        Some(parse_braced_call_region(input, tokens, parse_start))
-    } else if let Token::ClosedParen(_) = tokens.get(parse_start).unwrap() {
-        Some(parse_braced_call_region_backwards(
-            input,
-            tokens,
-            parse_start,
-        ))
-    } else {
-        None
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct Region {
-    start: usize,
-    end: usize,
-    inner_span: Span,
-}
-
-impl Region {
-    fn new(start: usize, end: usize, tokens: &Vec<Token>) -> Self {
-        let inner_start = tokens.get(start).unwrap().span().start();
-        let inner_end = tokens.get(end).unwrap().span().end();
-        Self {
-            start,
-            end,
-            inner_span: Span::new(inner_start, inner_end),
-        }
-    }
-
-    pub(crate) fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
-        let mut inner_tokens = vec![];
-        for _ in self.as_range() {
-            inner_tokens.push(tokens.remove(self.start));
-        }
-        tokens.insert(self.start, self.to_token(inner_tokens));
-    }
-
-    pub(crate) fn to_token(self, tokens: Vec<Token>) -> Token {
-        Token::Region(self.inner_span, tokens)
-    }
-
-    pub(crate) fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
-        let mut inner = vec![];
-        for x in self.as_range() {
-            inner.push(tokens.get(x).unwrap().clone());
-        }
-        inner
-    }
-
-    pub(crate) fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
-        if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
-            tokens.remove(self.start);
-            self.end -= 1;
-        }
-        if let Token::ClosedParen(_) = tokens.get(self.end).unwrap() {
-            tokens.remove(self.end);
-            self.end -= 1;
-        }
-    }
-
-    pub(crate) fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
-        let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
-            1
-        } else {
-            0
-        };
-        let mut open = 0;
-        let mut partitions = vec![];
-        let mut partition_start = braced_offset;
-        for x in tokens.iter().skip(self.start + braced_offset).enumerate() {
-            if x.0 >= (self.end - self.start - braced_offset) {
-                break;
-            }
-            if let Token::OpenParen(_) = x.1 {
-                open += 1;
-            } else if let Token::ClosedParen(_) = x.1 {
-                open -= 1;
-            } else if let Token::Comma(_) = x.1 {
-                if open == 0 {
-                    partitions.push((
-                        self.start + partition_start,
-                        self.start + braced_offset + x.0,
-                    ));
-                    partition_start = braced_offset + x.0 + 1;
-                }
-            }
-        }
-        partitions.push((self.start + partition_start, self.end));
-        let mut resulting_partitions = vec![];
-        let mut neg_offset = 0;
-        for part in partitions {
-            let mut partition = vec![];
-            let partition_len = part.1 - part.0;
-            let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
-            let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
-            for _ in 0..partition_len {
-                partition.push(tokens.remove(part.0 - neg_offset));
-            }
-            tokens.insert(
-                part.0 - neg_offset,
-                Token::Region(Span::new(start, end), partition),
-            );
-            self.end += 1;
-            resulting_partitions.push(part.0 - neg_offset);
-            neg_offset += partition_len - 1;
-            self.end -= partition_len;
-        }
-        resulting_partitions
-    }
-
-    pub(crate) fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
-        let mut result = vec![];
-        let arg_indices = self.partition_by_comma(tokens);
-        let args = arg_indices.len();
-        for x in arg_indices.into_iter().enumerate() {
-            let token = tokens.remove(x.1 - x.0);
-            if let Token::Region(_, tokens) = token {
-                result.push(tokens);
-            } else {
-                // This should never happen
-                panic!("No argument found, but {:?}", token);
-            }
-        }
-        self.end -= args;
-        self.erase(tokens);
-        result
-    }
-
-    pub(crate) fn erase(self, tokens: &mut Vec<Token>) {
-        for _ in self.as_range() {
-            tokens.remove(self.start);
-        }
-    }
-
-    #[inline]
-    pub(crate) fn as_range(&self) -> Range<usize> {
-        self.start..(self.end + 1) // add 1 here because the token at `self.end` should be removed as well
-    }
-
-    #[inline]
-    pub(crate) fn len(&self) -> usize {
-        (self.end + 1) - self.start
+        // let (result, sign) = num_to_num_and_sign((self.inner)(args));
+        let result = (self.inner)(args);
+        Ok(result)
     }
 }
 
@@ -1329,21 +1101,11 @@ impl<T> ParseResult<T> {
     }
 }
 
-/// Used for debugging, transforms a list of tokens
-/// to their string representation
-fn tokens_to_string(tokens: &Vec<Token>) -> String {
-    let mut result = String::new();
-    for token in tokens.iter() {
-        result.push_str(token.to_raw().as_str());
-    }
-    result
-}
-
 #[test]
-fn test() {
+fn test_simple_ops() {
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
-        ANSMode::WhenImplicit,
+        ANSMode::Never,
         Mode::Eval,
     ));
     let result = _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context)
@@ -1360,6 +1122,29 @@ fn test() {
         .normalize()
         .to_string();
     assert_eq!(result, "0");
+    let result = _lib::eval(String::from("0/(5*3+4)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "0");
+    let result = _lib::eval(String::from("(-1)*(5*6)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "-30");
+}
+
+#[test]
+fn test_functions() {
+    let mut context = _lib::new_eval_ctx(Config::new(
+        DiagnosticsConfig::default(),
+        ANSMode::Never,
+        Mode::Eval,
+    ));
     _lib::eval(String::from("a(x)=(x/2)+3"), &mut context).unwrap();
     let result = _lib::eval(String::from("a(-12.4)"), &mut context)
         .unwrap()
@@ -1368,15 +1153,32 @@ fn test() {
         .normalize()
         .to_string();
     assert_eq!(result, "-3.2");
-    let result = _lib::eval(String::from("(-1)*(5*6)"), &mut context)
+    _lib::eval(String::from("b(x, y)=(x/2)+3+y"), &mut context).unwrap();
+    let result = _lib::eval(String::from("b(-12.4, 3)"), &mut context)
         .unwrap()
         .0
         .unwrap()
         .normalize()
         .to_string();
-    assert_eq!(result, "-30");
-    _lib::eval(String::from("b(x, y)=(x/2)+3+y"), &mut context).unwrap();
-    let result = _lib::eval(String::from("b(-12.4, 3)"), &mut context)
+    assert_eq!(result, "-0.2");
+    _lib::eval(String::from("f(x) = x+4*3"), &mut context).unwrap();
+    let result = _lib::eval(String::from("f(2)*2"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "28");
+}
+
+#[test]
+fn test_ans() {
+    let mut context = _lib::new_eval_ctx(Config::new(
+        DiagnosticsConfig::default(),
+        ANSMode::WhenImplicit,
+        Mode::Eval,
+    ));
+    let result = _lib::eval(String::from("(-0.1)*2"), &mut context) // FIXME: -0.1*2 causes failures!
         .unwrap()
         .0
         .unwrap()
@@ -1390,21 +1192,22 @@ fn test() {
         .normalize()
         .to_string();
     assert_eq!(result, "-0.8");
-    let result = _lib::eval(String::from("0/(5*3+4)"), &mut context)
-        .unwrap()
-        .0
-        .unwrap()
-        .normalize()
-        .to_string();
-    assert_eq!(result, "0");
+}
+
+#[test]
+fn test_vars() {
+    let mut context = _lib::new_eval_ctx(Config::new(
+        DiagnosticsConfig::default(),
+        ANSMode::Never,
+        Mode::Eval,
+    ));
     let result = _lib::eval(String::from("k = 34"), &mut context).unwrap().1;
     assert!(result.is_none());
-    _lib::eval(String::from("f(x) = x+4*3"), &mut context).unwrap();
-    let result = _lib::eval(String::from("f(2)*2"), &mut context)
+    let result = _lib::eval(String::from("k + 4"), &mut context)
         .unwrap()
         .0
         .unwrap()
         .normalize()
         .to_string();
-    assert_eq!(result, "28");
+    assert_eq!(result, "38");
 }

@@ -1,21 +1,23 @@
-use crate::error::Span;
+use crate::span::Span;
 use rust_decimal::{Decimal, MathematicalOps};
 use std::fmt::{Display, Formatter};
+use std::mem::transmute;
 use std::ops::Neg;
 
 #[derive(Clone, Debug)]
 pub enum Token {
     OpenParen(usize),
     ClosedParen(usize),
-    Eq(usize),
     VertBar(usize),
     Comma(usize),
-    Op(usize, OpKind),
-    Literal(Span, String, SignKind, LiteralKind), // span, content, sign, kind
+    UnaryOp(usize, UnaryOpKind),
+    BinOp(usize, BinOpKind),
+    Literal(LiteralToken),
     Sign(usize, SignKind),
     Region(Span, Vec<Token>),
     Other(usize, char),
     None,
+    EOF(usize), // end of file token
 }
 
 impl Token {
@@ -23,46 +25,49 @@ impl Token {
         match self {
             Token::OpenParen(..) => TokenKind::OpenParen,
             Token::ClosedParen(..) => TokenKind::ClosedParen,
-            Token::Eq(..) => TokenKind::Eq,
             Token::VertBar(..) => TokenKind::VertBar,
             Token::Comma(..) => TokenKind::Comma,
-            Token::Op(..) => TokenKind::Op,
+            Token::BinOp(..) => TokenKind::BinOp,
+            Token::UnaryOp(..) => TokenKind::UnaryOp,
             Token::Literal(..) => TokenKind::Literal,
             Token::Sign(..) => TokenKind::Sign,
             Token::Region(..) => TokenKind::Region,
             Token::Other(..) => TokenKind::Other,
+            Token::EOF(..) => TokenKind::EOF,
             Token::None => unreachable!(),
         }
     }
 
     pub fn span(&self) -> Span {
         match self {
-            Token::OpenParen(idx) => Span::from_idx(*idx),
-            Token::ClosedParen(idx) => Span::from_idx(*idx),
-            Token::Eq(idx) => Span::from_idx(*idx),
-            Token::VertBar(idx) => Span::from_idx(*idx),
-            Token::Comma(idx) => Span::from_idx(*idx),
-            Token::Op(idx, _) => Span::from_idx(*idx),
-            Token::Literal(sp, ..) => *sp,
-            Token::Sign(idx, _) => Span::from_idx(*idx),
+            Token::OpenParen(idx) => Span::single_token(*idx),
+            Token::ClosedParen(idx) => Span::single_token(*idx),
+            Token::VertBar(idx) => Span::single_token(*idx),
+            Token::Comma(idx) => Span::single_token(*idx),
+            Token::BinOp(idx, _) => Span::single_token(*idx),
+            Token::UnaryOp(idx, _) => Span::single_token(*idx),
+            Token::Literal(lit_tok) => lit_tok.span,
+            Token::Sign(idx, _) => Span::single_token(*idx),
             Token::Region(sp, _) => *sp,
-            Token::Other(idx, _) => Span::from_idx(*idx),
+            Token::Other(idx, _) => Span::single_token(*idx),
+            Token::EOF(idx) => Span::single_token(*idx),
             Token::None => unreachable!(),
         }
     }
 
     pub fn implicitly_multiply_left(&self) -> ImplicitlyMultiply {
         match self {
-            Token::OpenParen(_) => ImplicitlyMultiply::Right,
-            Token::ClosedParen(_) => ImplicitlyMultiply::Left,
-            Token::Eq(_) => ImplicitlyMultiply::Never,
-            Token::VertBar(_) => ImplicitlyMultiply::Never,
-            Token::Comma(_) => ImplicitlyMultiply::Never,
-            Token::Op(_, _) => ImplicitlyMultiply::Never,
+            Token::OpenParen(..) => ImplicitlyMultiply::Right,
+            Token::ClosedParen(..) => ImplicitlyMultiply::Left,
+            Token::VertBar(..) => ImplicitlyMultiply::Never,
+            Token::Comma(..) => ImplicitlyMultiply::Never,
+            Token::BinOp(..) => ImplicitlyMultiply::Never,
+            Token::UnaryOp(..) => ImplicitlyMultiply::Left,
             Token::Literal(..) => ImplicitlyMultiply::Always,
             Token::Region(..) => ImplicitlyMultiply::Always,
-            Token::Sign(_, _) => unreachable!(),
-            Token::Other(_, _) => unreachable!(),
+            Token::EOF(..) => ImplicitlyMultiply::Never,
+            Token::Sign(..) => unreachable!(),
+            Token::Other(..) => unreachable!(),
             Token::None => unreachable!(),
         }
     }
@@ -71,20 +76,25 @@ impl Token {
         match self {
             Token::OpenParen(_) => String::from('('),
             Token::ClosedParen(_) => String::from(')'),
-            Token::Eq(_) => String::from('='),
             Token::VertBar(_) => String::from('|'),
             Token::Comma(_) => String::from(','),
-            Token::Op(_, op) => String::from(op.to_char()),
-            Token::Literal(_, buf, sign, _) => {
-                let mut result = buf.clone();
-                if sign == &SignKind::Minus {
+            Token::BinOp(_, op) => String::from(op.to_char()),
+            Token::UnaryOp(_, op) => String::from(op.to_char()),
+            Token::Literal(lit_tok) => {
+                let mut result = lit_tok.content.clone();
+                if lit_tok.sign == SignKind::Minus {
                     result.insert(0, '-');
+                }
+                if lit_tok.trailing_space == TrailingSpace::Yes {
+                    // FIXME: is this correct?
+                    result.push(' ');
                 }
                 result
             }
             Token::Sign(_, sign) => String::from(sign.to_raw()),
             Token::Region(_, _) => todo!(),
             Token::Other(_, raw) => String::from(*raw),
+            Token::EOF(_) => String::new(),
             Token::None => unreachable!(),
         }
     }
@@ -96,18 +106,46 @@ impl Display for Token {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LiteralToken {
+    pub(crate) span: Span,
+    pub(crate) content: String,
+    pub(crate) sign: SignKind,
+    pub(crate) kind: LiteralKind,
+    pub(crate) trailing_space: TrailingSpace,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
+pub enum TrailingSpace {
+    No,
+    Yes,
+    Maybe,
+}
+
+impl From<bool> for TrailingSpace {
+    fn from(val: bool) -> Self {
+        // This is safe as `false` is represented as 0
+        // and `true` is represented as 1 in a u8 value
+        // and thus we can "cast" this value into our
+        // enum and convert it to the No/Yes variants
+        unsafe { transmute::<bool, TrailingSpace>(val) }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     OpenParen,
     ClosedParen,
-    Eq,
     VertBar,
     Comma,
-    Op,
+    BinOp,
+    UnaryOp,
     Literal,
     Sign,
     Region,
     Other,
+    EOF, // end of file token
 }
 
 impl TokenKind {
@@ -146,79 +184,103 @@ impl ImplicitlyMultiply {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum OpKind {
-    Add,
-    Subtract,
-    Divide,
-    Multiply,
-    Modulo,
-    Pow, // FIXME: Is this a good name for "^"?
-
-    OpenParen, // This is only needed for shunting yard evaluation.
+pub enum UnaryOpKind {
+    Neg,       // `-`
+    Factorial, // `!`
 }
 
-impl OpKind {
+impl UnaryOpKind {
     pub fn to_char(&self) -> char {
         match self {
-            OpKind::Add => '+',
-            OpKind::Subtract => '-',
-            OpKind::Divide => '/',
-            OpKind::Multiply => '*',
-            OpKind::Modulo => '%',
-            OpKind::Pow => '^',
-            OpKind::OpenParen => unimplemented!(),
+            UnaryOpKind::Neg => '-',
+            UnaryOpKind::Factorial => '!',
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BinOpKind {
+    Add,      // `+`
+    Subtract, // `-`
+    Divide,   // `/`
+    Multiply, // `*`
+    Modulo,   // `%`
+    Pow,      // FIXME: Is this a good name for "^"?
+    Eq,       // `=`
+
+              // OpenParen, // This is only needed for shunting yard evaluation.
+}
+
+impl BinOpKind {
+    pub fn to_char(&self) -> char {
+        match self {
+            BinOpKind::Add => '+',
+            BinOpKind::Subtract => '-',
+            BinOpKind::Divide => '/',
+            BinOpKind::Multiply => '*',
+            BinOpKind::Modulo => '%',
+            BinOpKind::Pow => '^',
+            // OpKind::OpenParen => unimplemented!(),
+            BinOpKind::Eq => '=',
         }
     }
 
     pub fn precedence(&self) -> u8 {
         match self {
-            OpKind::Add => 2,
-            OpKind::Subtract => 2,
-            OpKind::Divide => 3,
-            OpKind::Multiply => 3,
-            OpKind::Modulo => 3, // TODO: Check this!
-            OpKind::Pow => 4,
-            OpKind::OpenParen => 0,
+            BinOpKind::Add => 2,
+            BinOpKind::Subtract => 2,
+            BinOpKind::Divide => 3,
+            BinOpKind::Multiply => 3,
+            BinOpKind::Modulo => 3, // TODO: Check this!
+            BinOpKind::Pow => 4,
+            // OpKind::OpenParen => 0,
+            BinOpKind::Eq => 1,
         }
     }
 
     pub fn associativity(&self) -> Associativity {
         match self {
-            OpKind::Add => Associativity::Left,
-            OpKind::Subtract => Associativity::Left,
-            OpKind::Divide => Associativity::Left,
-            OpKind::Multiply => Associativity::Left,
-            OpKind::Modulo => Associativity::Left, // TODO: Check this!
-            OpKind::Pow => Associativity::Right,
-            OpKind::OpenParen => Associativity::Right, // This shouldn't be relevant!
+            BinOpKind::Add => Associativity::Left,
+            BinOpKind::Subtract => Associativity::Left,
+            BinOpKind::Divide => Associativity::Left,
+            BinOpKind::Multiply => Associativity::Left,
+            BinOpKind::Modulo => Associativity::Left, // TODO: Check this!
+            BinOpKind::Pow => Associativity::Right,
+            // OpKind::OpenParen => Associativity::Right, // This shouldn't be relevant!
+            BinOpKind::Eq => unreachable!(),
         }
     }
 
+    // FIXME: this should go!
     pub fn args(&self) -> ArgsKind {
         match self {
-            OpKind::Add => ArgsKind::Both,
-            OpKind::Subtract => ArgsKind::Both,
-            OpKind::Divide => ArgsKind::Both,
-            OpKind::Multiply => ArgsKind::Both,
-            OpKind::Modulo => ArgsKind::Both,
-            OpKind::Pow => ArgsKind::Both,
-            OpKind::OpenParen => ArgsKind::None,
+            BinOpKind::Add => ArgsKind::Both,
+            BinOpKind::Subtract => ArgsKind::Both,
+            BinOpKind::Divide => ArgsKind::Both,
+            BinOpKind::Multiply => ArgsKind::Both,
+            BinOpKind::Modulo => ArgsKind::Both,
+            BinOpKind::Pow => ArgsKind::Both,
+            // OpKind::OpenParen => ArgsKind::None,
+            BinOpKind::Eq => ArgsKind::Both,
         }
     }
 
+    // FIXME: we should probably replace this!
     pub fn eval(&self, args: (Option<Number>, Option<Number>)) -> Number {
         match self {
-            OpKind::Add => args.0.unwrap() + args.1.unwrap(),
-            OpKind::Subtract => args.0.unwrap() - args.1.unwrap(),
-            OpKind::Divide => args.0.unwrap() / args.1.unwrap(),
-            OpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
-            OpKind::Modulo => args.0.unwrap() % args.1.unwrap(),
-            OpKind::Pow => args.0.unwrap().powd(args.1.unwrap()),
-            OpKind::OpenParen => unreachable!(),
+            BinOpKind::Add => args.0.unwrap() + args.1.unwrap(),
+            BinOpKind::Subtract => args.0.unwrap() - args.1.unwrap(),
+            BinOpKind::Divide => args.0.unwrap() / args.1.unwrap(),
+            BinOpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
+            BinOpKind::Modulo => args.0.unwrap() % args.1.unwrap(),
+            BinOpKind::Pow => args.0.unwrap().powd(args.1.unwrap()),
+            // OpKind::OpenParen => unreachable!(),
+            BinOpKind::Eq => unreachable!(), // this has some special impl
         }
         .normalize()
     }
 
+    // FIXME: this should go!
     pub fn resolve_num_args(&self, tokens: &TokenStream) -> (Option<Token>, Option<Token>) {
         let right = if self.args().has_right() {
             tokens
@@ -274,9 +336,8 @@ impl ArgsKind {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(u8)]
 pub enum SignKind {
-    Default,
+    Default, // FIXME: replace this with the #[default] attribute on the Plus variant!
     Plus,
     Minus,
 }
@@ -409,10 +470,10 @@ impl TokenStream {
 }
 
 pub fn token_to_num(token: &Token) -> Option<Number> {
-    if let Token::Literal(_, lit, sign, kind) = token {
-        if kind == &LiteralKind::Number {
-            let mut ret = lit.parse::<Number>().unwrap();
-            if sign == &SignKind::Minus {
+    if let Token::Literal(lit_tok) = token {
+        if lit_tok.kind == LiteralKind::Number {
+            let mut ret = lit_tok.content.parse::<Number>().unwrap();
+            if lit_tok.sign == SignKind::Minus {
                 ret = ret.neg();
             }
             return Some(ret);

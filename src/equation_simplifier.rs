@@ -1,9 +1,13 @@
-use crate::error::{DiagnosticBuilder, Span};
-use crate::shared::{LiteralKind, Number, OpKind, SignKind, Token, TokenKind, TokenStream};
-use crate::{_lib, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
+use crate::error::DiagnosticBuilder;
+use crate::shared::{
+    BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
+    TrailingSpace,
+};
+use crate::span::{GenericSpan, Span};
+use crate::{_lib, diagnostic_builder, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
 use rust_decimal::prelude::One;
 use std::collections::HashMap;
-use std::ops::Neg;
+use std::ops::{Neg, Range};
 
 // const SIMPLIFICATION_PASSES: [Box<dyn SimplificationPass>; 2] = [Box::new(ConstOpSimplificationPass {}), Box::new(NoopSimplificationPass {})];
 
@@ -11,6 +15,7 @@ use std::ops::Neg;
 // 0^x | This can't be simplified because we would need to prove that x != 0
 // x^0 | This can't be simplified because we would need to prove that x != 0
 // 0/x | This can't be simplified because we would need to prove that x != 0
+// FIXME: take the new format of AstNodes instead of a Vec of Tokens if that helps - it might not help because of brace shenanigans, although that could be sorted out through precedence
 pub fn simplify(input: String, tokens: Vec<Token>) -> Result<Vec<Token>, DiagnosticBuilder> {
     let mut stream = TokenStream::new(input, tokens);
     let simplification_passes: [Box<dyn SimplificationPass>; 5] = [
@@ -64,9 +69,9 @@ struct ConstOpSimplificationPass {}
 impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
     fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Pow => {
+                    BinOpKind::Pow => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
                         if op_kind.is_valid(&args) {
@@ -82,12 +87,13 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                 token_stream.inner_tokens_mut().remove(idx - 1); // Remove base
                                 token_stream.inner_tokens_mut().insert(
                                     idx - 1,
-                                    Token::Literal(
-                                        Span::NONE,
-                                        result.to_string(),
-                                        SignKind::Default,
-                                        LiteralKind::Number,
-                                    ),
+                                    Token::Literal(LiteralToken {
+                                        span: Span::NONE,
+                                        content: result.to_string(),
+                                        sign: SignKind::Default,
+                                        kind: LiteralKind::Number,
+                                        trailing_space: TrailingSpace::Maybe,
+                                    }),
                                 );
                                 token_stream.go_back();
                             }
@@ -102,9 +108,9 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
 
     fn simplify2(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Multiply | OpKind::Modulo | OpKind::Divide => {
+                    BinOpKind::Multiply | BinOpKind::Modulo | BinOpKind::Divide => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
                         if op_kind.is_valid(&args) {
@@ -116,9 +122,9 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                 // Check for previous op to prevent incorrect simplifications
                                 let prev_op_kind = prev_op_kind(token_stream)?;
                                 if prev_op_kind.is_none()
-                                    || (prev_op_kind.unwrap() != OpKind::Multiply
-                                        && prev_op_kind.unwrap() != OpKind::Modulo
-                                        && prev_op_kind.unwrap() != OpKind::Divide)
+                                    || (prev_op_kind.unwrap() != BinOpKind::Multiply
+                                        && prev_op_kind.unwrap() != BinOpKind::Modulo
+                                        && prev_op_kind.unwrap() != BinOpKind::Divide)
                                 {
                                     // Apply simplification
                                     let result = op_kind.eval(args);
@@ -128,12 +134,13 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     token_stream.inner_tokens_mut().remove(idx - 1); // Remove left hand argument
                                     token_stream.inner_tokens_mut().insert(
                                         idx - 1,
-                                        Token::Literal(
-                                            Span::NONE,
-                                            result.to_string(),
-                                            SignKind::Default,
-                                            LiteralKind::Number,
-                                        ),
+                                        Token::Literal(LiteralToken {
+                                            span: Span::NONE,
+                                            content: result.to_string(),
+                                            sign: SignKind::Default,
+                                            kind: LiteralKind::Number,
+                                            trailing_space: TrailingSpace::Maybe,
+                                        }),
                                     );
                                     token_stream.go_back();
                                 }
@@ -149,9 +156,9 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
 
     fn simplify1(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 match op_kind {
-                    OpKind::Add | OpKind::Subtract => {
+                    BinOpKind::Add | BinOpKind::Subtract => {
                         // TODO: MAYBE: Support (named) constant simplification for things like PI or E
                         let args = op_kind.resolve_num_args(token_stream);
                         if op_kind.is_valid(&args) {
@@ -163,9 +170,9 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                 // Check for previous op to prevent incorrect simplifications
                                 let prev_op_kind = prev_op_kind(token_stream)?;
                                 if prev_op_kind.is_none()
-                                    || (prev_op_kind.unwrap() != OpKind::Multiply
-                                        && prev_op_kind.unwrap() != OpKind::Modulo
-                                        && prev_op_kind.unwrap() != OpKind::Divide)
+                                    || (prev_op_kind.unwrap() != BinOpKind::Multiply
+                                        && prev_op_kind.unwrap() != BinOpKind::Modulo
+                                        && prev_op_kind.unwrap() != BinOpKind::Divide)
                                 {
                                     // Apply simplification
                                     let result = op_kind.eval(args);
@@ -175,12 +182,13 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     token_stream.inner_tokens_mut().remove(idx - 1); // Remove left hand argument
                                     token_stream.inner_tokens_mut().insert(
                                         idx - 1,
-                                        Token::Literal(
-                                            Span::NONE,
-                                            result.to_string(),
-                                            SignKind::Default,
-                                            LiteralKind::Number,
-                                        ),
+                                        Token::Literal(LiteralToken {
+                                            span: Span::NONE,
+                                            content: result.to_string(),
+                                            sign: SignKind::Default,
+                                            kind: LiteralKind::Number,
+                                            trailing_space: TrailingSpace::Maybe,
+                                        }),
                                     );
                                     token_stream.go_back();
                                 }
@@ -203,10 +211,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
     fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         // TODO: Expand this logic a bit to simplify more things!
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Pow => {
+                    BinOpKind::Pow => {
                         // handle right hand argument
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
@@ -247,10 +255,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
     fn simplify2(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         // TODO: Expand this logic a bit to simplify more things!
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Divide => {
+                    BinOpKind::Divide => {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -264,7 +272,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Multiply => {
+                    BinOpKind::Multiply => {
                         if let Some(token) = args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -321,10 +329,10 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
         // TODO: Expand this logic a bit to simplify more things!
         // TODO: Reduce code duplication!
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, op_kind) = token.clone() {
+            if let Token::BinOp(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
                 match op_kind {
-                    OpKind::Add => {
+                    BinOpKind::Add => {
                         if let Some(token) = &args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -350,7 +358,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                     }
-                    OpKind::Subtract => {
+                    BinOpKind::Subtract => {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
@@ -447,7 +455,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
         fn apply_results(
             offset: usize,
             operations: &Vec<Token>,
-            op_kind: OpKind,
+            op_kind: BinOpKind,
             stream: &mut TokenStream,
         ) {
             for _ in 0..(operations.len() * 2) {
@@ -456,23 +464,23 @@ impl SimplificationPass for OpSequenceSimplificationPass {
             let mut num_part = Number::ONE;
             let mut var_ops = HashMap::new();
             for token in operations.iter() {
-                if let Token::Literal(_, lit, sign, kind) = token {
-                    match kind {
+                if let Token::Literal(lit_tok) = token {
+                    match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = lit.parse::<Number>().unwrap();
-                            if sign == &SignKind::Minus {
+                            let mut num = lit_tok.content.parse::<Number>().unwrap();
+                            if lit_tok.sign == SignKind::Minus {
                                 num = num.neg();
                             }
                             num_part = num_part * num;
                         }
                         LiteralKind::CharSeq => {
-                            if sign == &SignKind::Minus {
+                            if lit_tok.sign == SignKind::Minus {
                                 num_part = num_part.neg();
                             }
-                            if !var_ops.contains_key(lit) {
-                                var_ops.insert(lit.clone(), 1_usize);
+                            if !var_ops.contains_key(&lit_tok.content) {
+                                var_ops.insert(lit_tok.content.clone(), 1_usize);
                             } else {
-                                *var_ops.get_mut(lit).unwrap() += 1;
+                                *var_ops.get_mut(&lit_tok.content).unwrap() += 1;
                             }
                         }
                     }
@@ -482,7 +490,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
             if !num_part.is_one() {
                 stream
                     .inner_tokens_mut()
-                    .insert(offset, Token::Op(usize::MAX, op_kind));
+                    .insert(offset, Token::BinOp(usize::MAX, op_kind));
                 let sign = if num_part.is_sign_negative() {
                     SignKind::Minus
                 } else {
@@ -494,7 +502,13 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                 }
                 stream.inner_tokens_mut().insert(
                     offset + 1,
-                    Token::Literal(Span::NONE, buff, sign, LiteralKind::Number),
+                    Token::Literal(LiteralToken {
+                        span: Span::NONE,
+                        content: buff,
+                        sign,
+                        kind: LiteralKind::Number,
+                        trailing_space: TrailingSpace::Maybe,
+                    }),
                 );
                 add_offset += 2;
             }
@@ -506,11 +520,17 @@ impl SimplificationPass for OpSequenceSimplificationPass {
             for op in ops {
                 stream
                     .inner_tokens_mut()
-                    .insert(offset + add_offset, Token::Op(usize::MAX, op_kind));
+                    .insert(offset + add_offset, Token::BinOp(usize::MAX, op_kind));
                 if op.1 == 1 {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
-                        Token::Literal(Span::NONE, op.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: op.0,
+                            sign: SignKind::Default,
+                            kind: LiteralKind::CharSeq,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     add_offset += 2;
                 } else {
@@ -520,28 +540,35 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                         .insert(offset + add_offset + 1, Token::OpenParen(usize::MAX));
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 2,
-                        Token::Literal(Span::NONE, op.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: op.0,
+                            sign: SignKind::Default,
+                            kind: LiteralKind::CharSeq,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 3,
-                        Token::Op(
+                        Token::BinOp(
                             usize::MAX,
                             match op_kind {
-                                OpKind::Divide => OpKind::Multiply,
-                                OpKind::Multiply => OpKind::Pow,
-                                OpKind::Pow => OpKind::Multiply,
+                                BinOpKind::Divide => BinOpKind::Multiply,
+                                BinOpKind::Multiply => BinOpKind::Pow,
+                                BinOpKind::Pow => BinOpKind::Multiply,
                                 _ => unreachable!(),
                             },
                         ),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 4,
-                        Token::Literal(
-                            Span::NONE,
-                            op.1.to_string(),
-                            SignKind::Default,
-                            LiteralKind::Number,
-                        ),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: op.1.to_string(),
+                            sign: SignKind::Default,
+                            kind: LiteralKind::Number,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     stream
                         .inner_tokens_mut()
@@ -552,10 +579,10 @@ impl SimplificationPass for OpSequenceSimplificationPass {
         }
 
         let mut offset = 0;
-        let mut last_kind = OpKind::OpenParen;
+        let mut last_kind = BinOpKind::Eq;
         let mut operations = vec![];
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, kind) = token {
+            if let Token::BinOp(_, kind) = token {
                 if kind == &last_kind {
                     if let Some(token) = token_stream.look_ahead() {
                         if TokenKind::Literal == token.kind() {
@@ -571,7 +598,10 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                         apply_results(offset, &operations, last_kind, token_stream);
                         operations.clear();
                     }
-                    if kind == OpKind::Multiply || kind == OpKind::Divide || kind == OpKind::Pow {
+                    if kind == BinOpKind::Multiply
+                        || kind == BinOpKind::Divide
+                        || kind == BinOpKind::Pow
+                    {
                         last_kind = kind;
                         if let Some(token) = token_stream.look_ahead() {
                             if TokenKind::Literal == token.kind() {
@@ -615,25 +645,25 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
             let mut num_part = Number::ZERO;
             let mut var_adds = HashMap::new();
             for token in actions.iter() {
-                if let Token::Literal(_, lit, sign, kind) = &token.0 {
-                    match kind {
+                if let Token::Literal(lit_tok) = &token.0 {
+                    match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = lit.parse::<Number>().unwrap();
-                            if sign == &SignKind::Minus {
+                            let mut num = lit_tok.content.parse::<Number>().unwrap();
+                            if lit_tok.sign == SignKind::Minus {
                                 num = num.neg();
                             }
                             num_part = num_part + num;
                         }
                         LiteralKind::CharSeq => {
-                            let diff = if sign == &SignKind::Minus {
+                            let diff = if lit_tok.sign == SignKind::Minus {
                                 -1
                             } else {
                                 1_isize
                             };
-                            if !var_adds.contains_key(lit) {
-                                var_adds.insert(lit.clone(), diff);
+                            if !var_adds.contains_key(&lit_tok.content) {
+                                var_adds.insert(lit_tok.content.clone(), diff);
                             } else {
-                                *var_adds.get_mut(lit).unwrap() += diff;
+                                *var_adds.get_mut(&lit_tok.content).unwrap() += diff;
                             }
                         }
                     }
@@ -644,11 +674,11 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 if num_part.is_sign_positive() {
                     stream
                         .inner_tokens_mut()
-                        .insert(offset, Token::Op(usize::MAX, OpKind::Add));
+                        .insert(offset, Token::BinOp(usize::MAX, BinOpKind::Add));
                 } else {
                     stream
                         .inner_tokens_mut()
-                        .insert(offset, Token::Op(usize::MAX, OpKind::Subtract));
+                        .insert(offset, Token::BinOp(usize::MAX, BinOpKind::Subtract));
                 }
                 let negative = num_part.is_sign_negative();
                 let mut buff = num_part.normalize().to_string();
@@ -657,7 +687,15 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 }
                 stream.inner_tokens_mut().insert(
                     offset + 1,
-                    Token::Literal(Span::NONE, buff, SignKind::Default, LiteralKind::Number),
+                    Token::Literal(
+                        LiteralToken {
+                            span: Span::NONE,
+                            content: buff,
+                            sign: SignKind::Default,
+                            kind: LiteralKind::Number,
+                            trailing_space: TrailingSpace::Maybe,
+                        }, /*Span::NONE, buff, SignKind::Default, LiteralKind::Number*/
+                    ),
                 );
                 add_offset += 2;
             }
@@ -668,39 +706,54 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
             // insert the results
             for add in adds {
                 if add.1 > 0 {
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Add));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset,
+                        Token::BinOp(usize::MAX, BinOpKind::Add),
+                    );
                 } else {
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset, Token::Op(usize::MAX, OpKind::Subtract));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset,
+                        Token::BinOp(usize::MAX, BinOpKind::Subtract),
+                    );
                 }
 
                 if add.1 == 1 || add.1 == -1 {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
-                        Token::Literal(Span::NONE, add.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: add.0,
+                            sign: SignKind::Default,
+                            kind: LiteralKind::CharSeq,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     add_offset += 2;
                 } else {
                     // This adds "(offset.0 * offset.1)"
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
-                        Token::Literal(Span::NONE, add.0, SignKind::Default, LiteralKind::CharSeq),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: add.0,
+                            sign: SignKind::Default,
+                            kind: LiteralKind::CharSeq,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 2,
-                        Token::Op(usize::MAX, OpKind::Multiply),
+                        Token::BinOp(usize::MAX, BinOpKind::Multiply),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 3,
-                        Token::Literal(
-                            Span::NONE,
-                            add.1.to_string(),
-                            SignKind::Default,
-                            LiteralKind::Number,
-                        ),
+                        Token::Literal(LiteralToken {
+                            span: Span::NONE,
+                            content: add.1.to_string(),
+                            sign: SignKind::Default,
+                            kind: LiteralKind::Number,
+                            trailing_space: TrailingSpace::Maybe,
+                        }),
                     );
                     add_offset += 4;
                 }
@@ -710,11 +763,11 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
         let mut offset = 0;
         let mut actions = vec![];
         while let Some(token) = token_stream.next() {
-            if let Token::Op(_, kind) = token {
-                if kind == &OpKind::Add || kind == &OpKind::Subtract {
+            if let Token::BinOp(_, kind) = token {
+                if kind == &BinOpKind::Add || kind == &BinOpKind::Subtract {
                     let kind = match kind {
-                        OpKind::Add => SequentialAction::Add,
-                        OpKind::Subtract => SequentialAction::Subtract,
+                        BinOpKind::Add => SequentialAction::Add,
+                        BinOpKind::Subtract => SequentialAction::Subtract,
                         _ => unreachable!(),
                     };
                     if let Some(token) = token_stream.look_ahead() {
@@ -747,6 +800,27 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
     }
 }
 
+// TODO: Simplification: Remove braces if they don't contain any operation which is lower/equal to the priority to the operations directly before and directly after the braces
+struct BraceOpPrioritySimplificationPass;
+
+impl SimplificationPass for BraceOpPrioritySimplificationPass {
+    fn simplify(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
+        let mut braces = vec![];
+        let mut last_op = None;
+        while let Some(token) = token_stream.next() {
+            if let Token::BinOp(_, kind) = token {
+                last_op = Some(*kind);
+            } else if let Token::OpenParen(_) = token {
+                braces.push((token_stream.inner_idx(), last_op));
+            } else if let Token::ClosedParen(_) = token {
+                let potential_next_op = token_stream.look_ahead();
+            }
+        }
+        Ok(())
+    }
+}
+
+#[repr(u8)]
 enum SequentialAction {
     Add,
     Subtract,
@@ -757,7 +831,7 @@ pub(crate) fn remove_token_or_braced_region(
     tokens: &mut Vec<Token>,
     idx: usize,
 ) -> Result<(), DiagnosticBuilder> {
-    let region = parser::parse_braced_call_immediately(&input, tokens, idx);
+    let region = parse_braced_call_immediately(&input, tokens, idx);
     if let Some(region) = region {
         region?.erase(tokens);
     } else {
@@ -771,7 +845,7 @@ pub(crate) fn idx_token_or_braced_region(
     tokens: &Vec<Token>,
     idx: usize,
 ) -> Result<usize, DiagnosticBuilder> {
-    let region = parser::parse_braced_call_immediately(&input, tokens, idx);
+    let region = parse_braced_call_immediately(&input, tokens, idx);
     let result = if let Some(region) = region {
         region?.as_range().start
     } else {
@@ -780,18 +854,244 @@ pub(crate) fn idx_token_or_braced_region(
     Ok(result)
 }
 
-fn prev_op_kind(token_stream: &TokenStream) -> Result<Option<OpKind>, DiagnosticBuilder> {
+fn prev_op_kind(token_stream: &TokenStream) -> Result<Option<BinOpKind>, DiagnosticBuilder> {
     let offset = idx_token_or_braced_region(
         token_stream.input.clone(),
         token_stream.inner_tokens(),
         token_stream.inner_idx() - 1,
     )?;
     if offset > 0 {
-        if let Token::Op(_, kind) = token_stream.inner_tokens().get(offset - 1).unwrap() {
+        if let Token::BinOp(_, kind) = token_stream.inner_tokens().get(offset - 1).unwrap() {
             return Ok(Some(*kind));
         }
     }
     Ok(None)
+}
+
+/// Tries to parse a braced call region like `(34*63+e)`
+/// it errors, when there is an unequal amount of
+/// `(` and `)`
+pub(crate) fn parse_braced_call_region(
+    input: &String,
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Result<Region, DiagnosticBuilder> {
+    let mut start = usize::MAX;
+    let mut end = usize::MAX;
+    let mut open = 0;
+    for x in tokens.iter().enumerate().skip(parse_start) {
+        if let Token::OpenParen(_) = x.1 {
+            if open == 0 {
+                start = x.0;
+            }
+            open += 1;
+        } else if let Token::ClosedParen(_) = x.1 {
+            open -= 1;
+            if open == 0 {
+                end = x.0;
+                break;
+            }
+        }
+    }
+    if open != 0 {
+        return diagnostic_builder!(
+            input.clone(),
+            "The brace count during region parsing didn't match!"
+        );
+    }
+    Ok(Region::new(start, end, tokens))
+}
+
+pub(crate) fn parse_braced_call_region_backwards(
+    input: &String,
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Result<Region, DiagnosticBuilder> {
+    let mut start = usize::MAX;
+    let mut end = usize::MAX;
+    let mut closed = 0;
+    for x in tokens
+        .iter()
+        .enumerate()
+        .rev()
+        .skip(tokens.len() - parse_start - 1)
+    {
+        if let Token::ClosedParen(_) = x.1 {
+            if closed == 0 {
+                start = x.0;
+            }
+            closed += 1;
+        } else if let Token::OpenParen(_) = x.1 {
+            closed -= 1;
+            if closed == 0 {
+                end = x.0;
+                break;
+            }
+        }
+    }
+    if closed != 0 {
+        return diagnostic_builder!(
+            input.clone(),
+            format!(
+                "The brace count during region parsing didn't match! {}",
+                closed
+            )
+        );
+    }
+    Ok(Region::new(end, start, tokens))
+}
+
+/// Contract: The current token has to be an OpenParen token
+pub(crate) fn parse_braced_call_immediately(
+    input: &String,
+    tokens: &Vec<Token>,
+    parse_start: usize,
+) -> Option<Result<Region, DiagnosticBuilder>> {
+    if let Token::OpenParen(_) = tokens.get(parse_start).unwrap() {
+        Some(parse_braced_call_region(input, tokens, parse_start))
+    } else if let Token::ClosedParen(_) = tokens.get(parse_start).unwrap() {
+        Some(parse_braced_call_region_backwards(
+            input,
+            tokens,
+            parse_start,
+        ))
+    } else {
+        None
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Region {
+    start: usize,
+    end: usize,
+    inner_span: Span,
+}
+
+impl Region {
+    fn new(start: usize, end: usize, tokens: &Vec<Token>) -> Self {
+        let inner_start = tokens.get(start).unwrap().span().start();
+        let inner_end = tokens.get(end).unwrap().span().end();
+        Self {
+            start,
+            end,
+            inner_span: Span::multi_token(inner_start, inner_end),
+        }
+    }
+
+    pub(crate) fn replace_in_tokens(self, tokens: &mut Vec<Token>) {
+        let mut inner_tokens = vec![];
+        for _ in self.as_range() {
+            inner_tokens.push(tokens.remove(self.start));
+        }
+        tokens.insert(self.start, self.to_token(inner_tokens));
+    }
+
+    pub(crate) fn to_token(self, tokens: Vec<Token>) -> Token {
+        Token::Region(self.inner_span, tokens)
+    }
+
+    pub(crate) fn to_inner_tokens(self, tokens: &Vec<Token>) -> Vec<Token> {
+        let mut inner = vec![];
+        for x in self.as_range() {
+            inner.push(tokens.get(x).unwrap().clone());
+        }
+        inner
+    }
+
+    pub(crate) fn pop_braces(&mut self, tokens: &mut Vec<Token>) {
+        if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
+            tokens.remove(self.start);
+            self.end -= 1;
+        }
+        if let Token::ClosedParen(_) = tokens.get(self.end).unwrap() {
+            tokens.remove(self.end);
+            self.end -= 1;
+        }
+    }
+
+    pub(crate) fn partition_by_comma(&mut self, tokens: &mut Vec<Token>) -> Vec<usize> {
+        let braced_offset = if let Token::OpenParen(_) = tokens.get(self.start).unwrap() {
+            1
+        } else {
+            0
+        };
+        let mut open = 0;
+        let mut partitions = vec![];
+        let mut partition_start = braced_offset;
+        for x in tokens.iter().skip(self.start + braced_offset).enumerate() {
+            if x.0 >= (self.end - self.start - braced_offset) {
+                break;
+            }
+            if let Token::OpenParen(_) = x.1 {
+                open += 1;
+            } else if let Token::ClosedParen(_) = x.1 {
+                open -= 1;
+            } else if let Token::Comma(_) = x.1 {
+                if open == 0 {
+                    partitions.push((
+                        self.start + partition_start,
+                        self.start + braced_offset + x.0,
+                    ));
+                    partition_start = braced_offset + x.0 + 1;
+                }
+            }
+        }
+        partitions.push((self.start + partition_start, self.end));
+        let mut resulting_partitions = vec![];
+        let mut neg_offset = 0;
+        for part in partitions {
+            let mut partition = vec![];
+            let partition_len = part.1 - part.0;
+            let start = tokens.get(part.0 - neg_offset).unwrap().span().start();
+            let end = tokens.get(part.1 - neg_offset).unwrap().span().end();
+            for _ in 0..partition_len {
+                partition.push(tokens.remove(part.0 - neg_offset));
+            }
+            tokens.insert(
+                part.0 - neg_offset,
+                Token::Region(Span::multi_token(start, end), partition),
+            );
+            self.end += 1;
+            resulting_partitions.push(part.0 - neg_offset);
+            neg_offset += partition_len - 1;
+            self.end -= partition_len;
+        }
+        resulting_partitions
+    }
+
+    pub(crate) fn erase_and_provide_args(mut self, tokens: &mut Vec<Token>) -> Vec<Vec<Token>> {
+        let mut result = vec![];
+        let arg_indices = self.partition_by_comma(tokens);
+        let args = arg_indices.len();
+        for x in arg_indices.into_iter().enumerate() {
+            let token = tokens.remove(x.1 - x.0);
+            if let Token::Region(_, tokens) = token {
+                result.push(tokens);
+            } else {
+                // This should never happen
+                panic!("No argument found, but {:?}", token);
+            }
+        }
+        self.end -= args;
+        self.erase(tokens);
+        result
+    }
+
+    pub(crate) fn erase(self, tokens: &mut Vec<Token>) {
+        for _ in self.as_range() {
+            tokens.remove(self.start);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn as_range(&self) -> Range<usize> {
+        self.start..(self.end + 1) // add 1 here because the token at `self.end` should be removed as well
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        (self.end + 1) - self.start
+    }
 }
 
 #[test]

@@ -6,6 +6,7 @@ use crate::_lib::DiagnosticsPrintingOrder::After;
 use crate::parser::ParseResult;
 use crate::shared::Number;
 
+#[derive(Clone)]
 pub struct Config {
     diagnostics: DiagnosticsConfig,
     pub(crate) ans_mode: ANSMode,
@@ -22,12 +23,13 @@ impl Config {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct DiagnosticsConfig {
     color: bool,                              // FIXME: Currently unsupported
     printing_order: DiagnosticsPrintingOrder, // FIXME: Currently unsupported
 }
 
+#[derive(Copy, Clone)]
 pub enum DiagnosticsPrintingOrder {
     Before,
     After,
@@ -40,7 +42,6 @@ impl Default for DiagnosticsPrintingOrder {
 }
 
 #[derive(Copy, Clone)]
-#[repr(u8)]
 pub enum Mode {
     Eval,
     Simplify,
@@ -48,7 +49,6 @@ pub enum Mode {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-#[repr(u8)]
 pub enum ANSMode {
     Never,
     WhenImplicit,
@@ -60,6 +60,7 @@ pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Num
     __lib::eval(input, eval_ctx)
 }
 
+#[inline]
 pub fn new_eval_ctx(config: Config) -> EvalContext {
     EvalContext::new(config)
 }

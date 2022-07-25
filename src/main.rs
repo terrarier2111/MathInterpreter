@@ -1,11 +1,18 @@
+extern crate core;
+
 mod __lib;
 mod _lib;
+mod ast;
+mod ast_walker;
+mod equation_evaluator;
 mod equation_simplifier;
 mod equation_solver;
 mod error;
 mod lexer;
 mod parser;
 mod shared;
+mod span;
+mod token_stream;
 mod utils;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
