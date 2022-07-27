@@ -17,6 +17,9 @@ mod utils;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 
+// TODO: add ans support to new parser
+// TODO: support 2 types of numbers (via an enum): whole numbers and floating point numbers in order to avoid inaccurracies when doing calculations
+
 fn main() {
     colored::control::set_override(true);
     let mut context = _lib::new_eval_ctx(Config::new(

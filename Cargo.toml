@@ -1,11 +1,14 @@
 [package]
 name = "MathInterpreter"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rust_decimal = { version = "1.22.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
-rust_decimal_macros = "1.22.0"
+# provides 96 bit floating point numbers
+rust_decimal = { version = "1.25.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
+rust_decimal_macros = "1.25.0"
 colored = "2.0.0"
+# used for factorial calculations for floating point numbers
+statrs = "0.15.0"

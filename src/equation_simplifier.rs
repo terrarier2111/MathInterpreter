@@ -3,7 +3,7 @@ use crate::shared::{
     BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
     TrailingSpace,
 };
-use crate::span::{GenericSpan, Span};
+use crate::span::{FixedTokenSpan, GenericSpan, Span};
 use crate::{_lib, diagnostic_builder, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
 use rust_decimal::prelude::One;
 use std::collections::HashMap;
@@ -90,7 +90,6 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                     Token::Literal(LiteralToken {
                                         span: Span::NONE,
                                         content: result.to_string(),
-                                        sign: SignKind::Default,
                                         kind: LiteralKind::Number,
                                         trailing_space: TrailingSpace::Maybe,
                                     }),
@@ -137,7 +136,6 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                         Token::Literal(LiteralToken {
                                             span: Span::NONE,
                                             content: result.to_string(),
-                                            sign: SignKind::Default,
                                             kind: LiteralKind::Number,
                                             trailing_space: TrailingSpace::Maybe,
                                         }),
@@ -185,7 +183,6 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
                                         Token::Literal(LiteralToken {
                                             span: Span::NONE,
                                             content: result.to_string(),
-                                            sign: SignKind::Default,
                                             kind: LiteralKind::Number,
                                             trailing_space: TrailingSpace::Maybe,
                                         }),
@@ -468,15 +465,9 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                     match lit_tok.kind {
                         LiteralKind::Number => {
                             let mut num = lit_tok.content.parse::<Number>().unwrap();
-                            if lit_tok.sign == SignKind::Minus {
-                                num = num.neg();
-                            }
                             num_part = num_part * num;
                         }
                         LiteralKind::CharSeq => {
-                            if lit_tok.sign == SignKind::Minus {
-                                num_part = num_part.neg();
-                            }
                             if !var_ops.contains_key(&lit_tok.content) {
                                 var_ops.insert(lit_tok.content.clone(), 1_usize);
                             } else {
@@ -490,7 +481,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
             if !num_part.is_one() {
                 stream
                     .inner_tokens_mut()
-                    .insert(offset, Token::BinOp(usize::MAX, op_kind));
+                    .insert(offset, Token::BinOp(FixedTokenSpan::none(), op_kind));
                 let sign = if num_part.is_sign_negative() {
                     SignKind::Minus
                 } else {
@@ -505,7 +496,6 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                     Token::Literal(LiteralToken {
                         span: Span::NONE,
                         content: buff,
-                        sign,
                         kind: LiteralKind::Number,
                         trailing_space: TrailingSpace::Maybe,
                     }),
@@ -518,16 +508,16 @@ impl SimplificationPass for OpSequenceSimplificationPass {
 
             // insert the results
             for op in ops {
-                stream
-                    .inner_tokens_mut()
-                    .insert(offset + add_offset, Token::BinOp(usize::MAX, op_kind));
+                stream.inner_tokens_mut().insert(
+                    offset + add_offset,
+                    Token::BinOp(FixedTokenSpan::none(), op_kind),
+                );
                 if op.1 == 1 {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 1,
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: op.0,
-                            sign: SignKind::Default,
                             kind: LiteralKind::CharSeq,
                             trailing_space: TrailingSpace::Maybe,
                         }),
@@ -535,15 +525,15 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                     add_offset += 2;
                 } else {
                     // This adds "(offset.0 ^ offset.1)"
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset + 1, Token::OpenParen(usize::MAX));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 1,
+                        Token::OpenParen(FixedTokenSpan::none()),
+                    );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 2,
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: op.0,
-                            sign: SignKind::Default,
                             kind: LiteralKind::CharSeq,
                             trailing_space: TrailingSpace::Maybe,
                         }),
@@ -551,7 +541,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 3,
                         Token::BinOp(
-                            usize::MAX,
+                            FixedTokenSpan::none(),
                             match op_kind {
                                 BinOpKind::Divide => BinOpKind::Multiply,
                                 BinOpKind::Multiply => BinOpKind::Pow,
@@ -565,14 +555,14 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: op.1.to_string(),
-                            sign: SignKind::Default,
                             kind: LiteralKind::Number,
                             trailing_space: TrailingSpace::Maybe,
                         }),
                     );
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset + add_offset + 5, Token::ClosedParen(usize::MAX));
+                    stream.inner_tokens_mut().insert(
+                        offset + add_offset + 5,
+                        Token::ClosedParen(FixedTokenSpan::none()),
+                    );
                     add_offset += 6;
                 }
             }
@@ -649,17 +639,10 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                     match lit_tok.kind {
                         LiteralKind::Number => {
                             let mut num = lit_tok.content.parse::<Number>().unwrap();
-                            if lit_tok.sign == SignKind::Minus {
-                                num = num.neg();
-                            }
                             num_part = num_part + num;
                         }
                         LiteralKind::CharSeq => {
-                            let diff = if lit_tok.sign == SignKind::Minus {
-                                -1
-                            } else {
-                                1_isize
-                            };
+                            let diff = 1;
                             if !var_adds.contains_key(&lit_tok.content) {
                                 var_adds.insert(lit_tok.content.clone(), diff);
                             } else {
@@ -674,11 +657,12 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 if num_part.is_sign_positive() {
                     stream
                         .inner_tokens_mut()
-                        .insert(offset, Token::BinOp(usize::MAX, BinOpKind::Add));
+                        .insert(offset, Token::BinOp(FixedTokenSpan::none(), BinOpKind::Add));
                 } else {
-                    stream
-                        .inner_tokens_mut()
-                        .insert(offset, Token::BinOp(usize::MAX, BinOpKind::Subtract));
+                    stream.inner_tokens_mut().insert(
+                        offset,
+                        Token::BinOp(FixedTokenSpan::none(), BinOpKind::Subtract),
+                    );
                 }
                 let negative = num_part.is_sign_negative();
                 let mut buff = num_part.normalize().to_string();
@@ -687,15 +671,12 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 }
                 stream.inner_tokens_mut().insert(
                     offset + 1,
-                    Token::Literal(
-                        LiteralToken {
-                            span: Span::NONE,
-                            content: buff,
-                            sign: SignKind::Default,
-                            kind: LiteralKind::Number,
-                            trailing_space: TrailingSpace::Maybe,
-                        }, /*Span::NONE, buff, SignKind::Default, LiteralKind::Number*/
-                    ),
+                    Token::Literal(LiteralToken {
+                        span: Span::NONE,
+                        content: buff,
+                        kind: LiteralKind::Number,
+                        trailing_space: TrailingSpace::Maybe,
+                    }),
                 );
                 add_offset += 2;
             }
@@ -708,12 +689,12 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 if add.1 > 0 {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset,
-                        Token::BinOp(usize::MAX, BinOpKind::Add),
+                        Token::BinOp(FixedTokenSpan::none(), BinOpKind::Add),
                     );
                 } else {
                     stream.inner_tokens_mut().insert(
                         offset + add_offset,
-                        Token::BinOp(usize::MAX, BinOpKind::Subtract),
+                        Token::BinOp(FixedTokenSpan::none(), BinOpKind::Subtract),
                     );
                 }
 
@@ -723,7 +704,6 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: add.0,
-                            sign: SignKind::Default,
                             kind: LiteralKind::CharSeq,
                             trailing_space: TrailingSpace::Maybe,
                         }),
@@ -736,21 +716,19 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: add.0,
-                            sign: SignKind::Default,
                             kind: LiteralKind::CharSeq,
                             trailing_space: TrailingSpace::Maybe,
                         }),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 2,
-                        Token::BinOp(usize::MAX, BinOpKind::Multiply),
+                        Token::BinOp(FixedTokenSpan::none(), BinOpKind::Multiply),
                     );
                     stream.inner_tokens_mut().insert(
                         offset + add_offset + 3,
                         Token::Literal(LiteralToken {
                             span: Span::NONE,
                             content: add.1.to_string(),
-                            sign: SignKind::Default,
                             kind: LiteralKind::Number,
                             trailing_space: TrailingSpace::Maybe,
                         }),

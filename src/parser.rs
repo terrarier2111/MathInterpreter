@@ -4,10 +4,10 @@ use crate::equation_evaluator::EvalWalker;
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    num_to_num_and_sign, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken,
-    Number, SignKind, Token, TokenKind, TrailingSpace,
+    num_to_num_and_sign, ArgPosition, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind,
+    LiteralToken, Number, SignKind, Token, TokenKind, TrailingSpace,
 };
-use crate::span::Span;
+use crate::span::{FixedTokenSpan, Span};
 use crate::token_stream::TokenStream;
 use crate::{
     _lib, diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
@@ -50,7 +50,6 @@ impl<'a> Parser<'a> {
             result
         }
         // Make implicit multiplications explicit!
-        println!("parse 0");
         let mut last_token_mult = ImplicitlyMultiply::Never;
         let mut multiplications = vec![];
         let mut idx = 0;
@@ -80,7 +79,6 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
-        println!("check eof");
         while !self.eat(TokenKind::EOF) {
             let curr_token_mult = if let Some(lit) = self.parse_lit() {
                 if self.parse_ctx.exists_fn(&lit.content)
@@ -103,29 +101,28 @@ impl<'a> Parser<'a> {
         }
         let mut tokens = self.token_stream.internal_tokens().into_vec();
         for x in multiplications.iter().enumerate() {
-            tokens.insert(x.0 + *x.1, Token::BinOp(x.0, BinOpKind::Multiply));
+            tokens.insert(
+                x.0 + *x.1,
+                Token::BinOp(FixedTokenSpan::new(x.0), BinOpKind::Multiply),
+            );
         }
         self.token_stream
             .replace_internal_tokens(tokens.into_boxed_slice());
         self.reset();
-
         println!(
             "tokens: {}",
             tokens_to_string(&self.token_stream.internal_tokens())
         );
 
-        println!("getting head!");
         let head_expr = match self.parse_expr() {
             Ok(val) => val,
             Err(err) => {
                 return ParseResult::new_err(err);
             }
         };
-        println!("do stuff!");
 
         match mode {
             Mode::Eval => {
-                println!("evaluating!");
                 let val = equation_evaluator::eval(&mut self.parse_ctx, head_expr);
                 match val {
                     Ok(val) => ParseResult::new_ok(val),
@@ -206,40 +203,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> PResult<AstNode> {
-        /*match &self.curr {
-            Token::OpenParen(_) => self.parse_paren_expr(),
-            // Token::ClosedParen(_) => {}
-            // Token::VertBar(_) => {}
-            // Token::Comma(_) => {}
-            // Token::Op(_, _) => {}
-            Token::Literal(_) => {
-                println!("curr: {}", self.curr);
-                if let Some(func) = self.try_parse_function()? {
-                    Ok(func)
-                } else if self
-                    .token_stream
-                    .look_ahead(1, |x| x.kind() == TokenKind::BinOp)
-                {
-                    println!("curr: {}", self.curr);
-                    self.parse_binop()
-                } else {
-                    Ok(AstNode::Lit(self.parse_lit().unwrap()))
-                }
-            }
-            // Token::Region(_, _) => {}
-            _ => diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
-                format!("expected expression, found {}", self.curr.to_raw()),
-                self.curr.span()
-            ),
-        }*/
         self.parse_binop()
     }
 
     fn parse_binop(&mut self) -> PResult<AstNode> {
-        println!("parsing binop!");
         let lhs = self.parse_primary()?;
-        println!("doing other binop stuff!");
         self.parse_bin_op_rhs(0, lhs)
     }
 
@@ -254,7 +222,6 @@ impl<'a> Parser<'a> {
             // If this is a binop that binds at least as tightly as the current binop,
             // consume it, otherwise we are done.
             if let Some(bin_op) = bin_op {
-                println!("checking stuff!");
                 if bin_op.precedence() < prec {
                     return Ok(lhs);
                 }
@@ -264,30 +231,15 @@ impl<'a> Parser<'a> {
             let bin_op = bin_op.unwrap();
             self.eat(TokenKind::BinOp);
 
-            println!("parsing rhs..!");
             let mut rhs = Some(self.parse_primary()?);
-            println!("rhs: {:?}", rhs);
-            // let last_mult = self.token_stream.look_back(1, |token| token.implicitly_multiply_left());
 
             // If BinOp binds less tightly with RHS than the operator after RHS, let
             // the pending operator take RHS as its LHS.
-            let /*mut */next_bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
+            let next_bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
                 Some(*bin_op)
             } else {
                 None
             };
-
-            /*if next_bin_op.is_none() {
-                if self.ans_mode == ANSMode::Always || (self.ans_mode == ANSMode::WhenImplicit &&
-                    last_mult.map_or(false, |last_mult| self.curr.implicitly_multiply_left().can_multiply_with_left(last_mult))) {
-                    // FIXME: all these conversions from/to boxed slices seem pretty inefficient, should we go back to using only a simple vec?
-                    let mut curr_toks = self.token_stream.internal_tokens().into_vec();
-                    curr_toks.insert(self.token_stream.cursor(), Token::BinOp(NONE, BinOpKind::Multiply));
-                    self.token_stream.replace_internal_tokens(curr_toks.into_boxed_slice());
-                    // we now can pretend like we found a multiply token all along
-                    next_bin_op = Some(BinOpKind::Multiply);
-                }
-            }*/
 
             match next_bin_op {
                 None => {
@@ -337,19 +289,29 @@ impl<'a> Parser<'a> {
     fn parse_primary(&mut self) -> PResult<AstNode> {
         println!("parsing primary!");
         match &self.curr {
-            Token::OpenParen(_) => self.parse_paren_expr(),
-            // Token::VertBar(_) => {} // FIXME: how are we supposed to handle this?
-            // Token::Literal(_) => self.parse_binop(),
+            Token::OpenParen(_) => {
+                let lhs = self.parse_paren_expr()?;
+                self.try_parse_unary_arg_lhs(lhs)
+            }
             Token::Literal(_) => {
-                // FIXME: check if the literal code is okay
-                println!("curr: {}", self.curr);
-                if let Some(func) = self.try_parse_function()? {
-                    Ok(func)
+                let lhs = if let Some(func) = self.try_parse_function()? {
+                    func
                 } else {
-                    Ok(AstNode::Lit(self.parse_lit().unwrap()))
+                    AstNode::Lit(self.parse_lit().unwrap())
+                };
+                self.try_parse_unary_arg_lhs(lhs)
+            }
+            Token::UnaryOp(_, op) => {
+                if op.arg_position() == ArgPosition::RHS {
+                    self.parse_unary_arg_rhs()
+                } else {
+                    diagnostic_builder_spanned!(
+                        self.parse_ctx.input.clone(),
+                        format!("can't find argument of unary {}", self.curr.to_raw()),
+                        self.curr.span()
+                    )
                 }
             }
-            // Token::Region(_, _) => {} // FIXME: how are we supposed to handle this?
             _ => diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
                 format!(
@@ -362,115 +324,35 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /*
-    fn parse_primary(&mut self) -> Result<AstNode, ()> {
-        println!("curr: {:?}", self.curr);
-        match &self.curr {
-            Token::Ident(_, content) => {
-                if self
-                    .token_stream
-                    .look_ahead(1, |token| token.to_type() == TokenType::OpenParen)
-                {
-                    self.parse_call() // FIXME: handle errors properly!
-                                      /*} else if self.token_stream.look_ahead(1, |token| token.to_type() == TokenType::Dot) {
-                                      // FIXME: parse field access/struct method call
-                                       */
-                } else if self
-                    .token_stream
-                    .look_ahead(1, |token| token.to_type() == TokenType::OpenCurly)
-                {
-                    self.parse_struct_constructor()
-                } else {
-                    // FIXME: handle the rest!
-                    let content = content.clone();
-                    self.advance();
-                    Ok(AstNode::Ident(content))
-                }
-            }
-            //#!Token::Keyword(_, _) => {}
-            // Token::StrLit(_, _) => {}
-            Token::NumLit(_, _) => self.parse_number_expr(),
-            Token::OpenParen(_) => self.parse_paren_expr(),
-            Token::OpenBracket(_) => self.parse_array_constructor(),
-            //#!Token::OpenCurly(_) => {}
-            // Token::OpenBracket(_) => {}
-            // Token::Eq(_) => {}
-            // Token::Colon(_) => {}
-            //#!Token::Semi(_) => {}
-            // Token::Apostrophe(_) => {}
-            // Token::OpenAngle(_) => {}
-            // Token::Star(_) => {}
-            // Token::Question(_) => {}
-            // Token::Underscore(_) => {}
-            // Token::Comment(_, _) => Ok(None), // FIXME: this is currently filtered in the tokenstream
-            Token::EOF(_) => Err(()),
-            _ => Err(()),
+    fn parse_unary_arg_rhs(&mut self) -> PResult<AstNode> {
+        println!("parsing unary rhs");
+        if let Token::UnaryOp(_, op) = &self.curr {
+            let op = *op;
+            self.advance();
+            let rhs = self.parse_primary()?;
+            Ok(AstNode::UnaryOp(UnaryOpNode {
+                op,
+                val: Box::new(rhs),
+            }))
+        } else {
+            unreachable!()
         }
     }
 
-    fn parse_bin_op(&mut self) -> Result<AstNode, ()> {
-        let lhs = self.parse_primary()?;
-        self.parse_bin_op_rhs(0, lhs)
-    }
-
-    fn parse_bin_op_rhs(&mut self, prec: usize, mut lhs: AstNode) -> Result<AstNode, ()> {
-        // If this is a binop, find its precedence.
-        loop {
-            let bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
-                Some(*bin_op)
-            } else {
-                None
-            };
-
-            // If this is a binop that binds at least as tightly as the current binop,
-            // consume it, otherwise we are done.
-            if let Some(bin_op) = bin_op {
-                if bin_op.precedence() < prec {
-                    return Ok(lhs);
-                }
-            } else {
-                return Ok(lhs);
-            }
-            let bin_op = bin_op.unwrap();
-            self.eat(TokenType::BinOp);
-
-            let mut rhs = Some(self.parse_primary()?);
-
-            if rhs.is_some() {
-                // If BinOp binds less tightly with RHS than the operator after RHS, let
-                // the pending operator take RHS as its LHS.
-                let next_bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
-                    Some(*bin_op)
-                } else {
-                    None
-                };
-
-                if let Some(next_bin_op) = next_bin_op {
-                    if bin_op.precedence() < next_bin_op.precedence() {
-                        rhs = rhs.map(|rhs| {
-                            self.parse_bin_op_rhs(bin_op.precedence() + 1, rhs).unwrap()
-                        });
-                        if rhs.is_none() {
-                            return Err(()); // FIXME: is this correct?
-                        }
-                    }
-                } else {
-                    return Ok(AstNode::BinaryExpr(Box::new(BinaryExprNode {
-                        lhs,
-                        rhs: rhs.take().unwrap(),
-                        op: bin_op,
-                    })));
-                }
-
-                lhs = AstNode::BinaryExpr(Box::new(BinaryExprNode {
-                    lhs,
-                    rhs: rhs.take().unwrap(),
-                    op: bin_op,
-                }))
+    fn try_parse_unary_arg_lhs(&mut self, lhs: AstNode) -> PResult<AstNode> {
+        println!("parsing unary lhs");
+        if let Token::UnaryOp(_, op) = &self.curr {
+            let op = *op;
+            if op.arg_position() == ArgPosition::LHS {
+                self.advance();
+                return Ok(AstNode::UnaryOp(UnaryOpNode {
+                    op,
+                    val: Box::new(lhs),
+                }));
             }
         }
+        Ok(lhs)
     }
-    */
 
     fn parse_lit(&mut self) -> Option<LiteralToken> {
         if let Token::Literal(lit) = &self.curr {
@@ -669,7 +551,6 @@ impl ParseContext {
                         AstNode::Lit(LiteralToken {
                             span: Span::NONE,
                             content: num.to_string(),
-                            sign: SignKind::Default,
                             kind: LiteralKind::Number,
                             trailing_space: TrailingSpace::Maybe,
                         })
@@ -710,151 +591,6 @@ impl ParseContext {
         self.builtin_funcs.insert(name, func);
     }
 }
-
-/*
-pub(crate) fn shunting_yard(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Vec<Token>> {
-    let mut output = vec![];
-    let mut operator_stack: Vec<BinOpKind> = vec![];
-    for token in input {
-        match &token {
-            Token::OpenParen(_) => operator_stack.push(BinOpKind::OpenParen),
-            Token::ClosedParen(_) => loop {
-                if let Some(op) = operator_stack.pop() {
-                    if op == BinOpKind::OpenParen {
-                        break;
-                    }
-                    output.push(Token::BinOp(usize::MAX, op));
-                } else {
-                    return diagnostic_builder_spanned!(
-                        parse_ctx.input.clone(),
-                        "Invalid parens!",
-                        token.span()
-                    );
-                }
-            },
-            Token::Eq(_) => {}
-            Token::VertBar(_) => {}
-            Token::Comma(_) => {}
-            Token::BinOp(_, op) => {
-                while !operator_stack.is_empty()
-                    && (op.precedence() < operator_stack.last().unwrap().precedence()
-                        || (op.precedence() == operator_stack.last().unwrap().precedence()
-                            && op.associativity() == Associativity::Left))
-                {
-                    output.push(Token::BinOp(usize::MAX, operator_stack.pop().unwrap()));
-                }
-                operator_stack.push(*op);
-            }
-            Token::Literal(lit_tok) => {
-                if lit_tok.kind == LiteralKind::CharSeq {
-                    return diagnostic_builder_spanned!(
-                        parse_ctx.input.clone(),
-                        "Failed to evaluate literal correctly",
-                        lit_tok.span
-                    );
-                } else {
-                    output.push(token);
-                }
-            }
-            Token::Sign(sp, _) => {
-                return diagnostic_builder!(
-                    parse_ctx.input.clone(),
-                    "There was no sign expected",
-                    sp
-                );
-            }
-            Token::Other(sp, _) => {
-                return diagnostic_builder!(
-                    parse_ctx.input.clone(),
-                    "Other is not allowed here",
-                    sp
-                );
-            }
-            Token::Region(_, _) => panic!(),
-            Token::None => unreachable!(),
-        }
-    }
-    for operator in operator_stack.into_iter().rev() {
-        output.push(Token::BinOp(usize::MAX, operator));
-    }
-    Ok(output)
-}
-
-pub(crate) fn eval_rpn(input: Vec<Token>, parse_ctx: &ParseContext) -> PResult<Number> {
-    let mut num_stack: Vec<Number> = vec![];
-    for token in input {
-        match token {
-            Token::OpenParen(_) => unreachable!(),
-            Token::ClosedParen(_) => unreachable!(),
-            Token::Eq(sp) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "`=` at wrong location", sp);
-            }
-            Token::VertBar(_) => {}
-            Token::Comma(sp) => {
-                return diagnostic_builder!(parse_ctx.input.clone(), "`,` at wrong location", sp);
-            }
-            Token::BinOp(_, op) => match op {
-                BinOpKind::Add => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1 + num_2)
-                }
-                BinOpKind::Subtract => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1 - num_2)
-                }
-                BinOpKind::Divide => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1 / num_2)
-                }
-                BinOpKind::Multiply => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1 * num_2)
-                }
-                BinOpKind::Modulo => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1 % num_2)
-                }
-                BinOpKind::Pow => {
-                    let num_2 = num_stack.pop().unwrap();
-                    let num_1 = num_stack.pop().unwrap();
-                    num_stack.push(num_1.powd(num_2))
-                }
-                BinOpKind::OpenParen => unreachable!(),
-            },
-            Token::Literal(lit_tok) => {
-                if lit_tok.kind == LiteralKind::CharSeq {
-                    return diagnostic_builder_spanned!(
-                        parse_ctx.input.clone(),
-                        format!("Failed to evaluate literal `{}` correctly", lit_tok.content),
-                        lit_tok.span
-                    );
-                } else {
-                    let mut num = lit_tok.content.parse::<Number>().unwrap();
-                    if lit_tok.sign == SignKind::Minus {
-                        num = num.neg();
-                    }
-                    num_stack.push(num);
-                }
-            }
-            Token::Region(_, _) => panic!(),
-            Token::Sign(_, _) => unreachable!(),
-            Token::Other(_, _) => unreachable!(),
-            Token::None => unreachable!(),
-        }
-    }
-    if num_stack.len() != 1 {
-        return diagnostic_builder!(
-            parse_ctx.input.clone(),
-            "There is more than 1 number left after finishing evaluation"
-        );
-    }
-    Ok(num_stack.pop().unwrap())
-}*/
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -957,17 +693,12 @@ impl Function {
         parse_ctx: &ParseContext,
     ) -> PResult<AstNode> {
         if self.args.len() != arg_values.len() {
-            let args_txt = if self.args.len() == 1 {
-                "argument"
-            } else {
-                "arguments"
-            };
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
                 format!(
-                    "expected {} {}, got {}",
+                    "expected {} argument{}, got {}",
                     self.args.len(),
-                    args_txt,
+                    pluralize!(self.args.len()),
                     arg_values.len()
                 )
             );
@@ -1010,27 +741,22 @@ impl BuiltInFunction {
         parse_ctx: &ParseContext,
     ) -> PResult<Number> {
         if self.arg_count != arg_values.len() {
-            let args_txt = pluralize!(self.arg_count);
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
                 format!(
                     "Expected {} argument{}, got {}",
                     self.arg_count,
-                    args_txt,
+                    pluralize!(self.arg_count),
                     arg_values.len()
                 )
             );
         }
         let mut args = vec![];
         for arg in arg_values.iter() {
-            /*let rpn = shunting_yard(arg.clone(), parse_ctx)?;
-            let result = eval_rpn(rpn, parse_ctx)?;
-            args.push(result);*/
             let eval_walker = EvalWalker { ctx: parse_ctx };
             let walked = eval_walker.walk(arg);
             args.push(walked?);
         }
-        // let (result, sign) = num_to_num_and_sign((self.inner)(args));
         let result = (self.inner)(args);
         Ok(result)
     }
@@ -1129,13 +855,20 @@ fn test_simple_ops() {
         .normalize()
         .to_string();
     assert_eq!(result, "0");
-    let result = _lib::eval(String::from("(-1)*(5*6)"), &mut context)
+    let result = _lib::eval(String::from("-1*(5*6)"), &mut context)
         .unwrap()
         .0
         .unwrap()
         .normalize()
         .to_string();
     assert_eq!(result, "-30");
+    let result = _lib::eval(String::from("5!"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "119.9999999999997"); // FIXME: make this 120
 }
 
 #[test]
@@ -1178,7 +911,7 @@ fn test_ans() {
         ANSMode::WhenImplicit,
         Mode::Eval,
     ));
-    let result = _lib::eval(String::from("(-0.1)*2"), &mut context) // FIXME: -0.1*2 causes failures!
+    let result = _lib::eval(String::from("(-0.1)*2"), &mut context)
         .unwrap()
         .0
         .unwrap()

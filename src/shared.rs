@@ -1,23 +1,27 @@
-use crate::span::Span;
+use crate::diagnostic_builder;
+use crate::error::DiagnosticBuilder;
+use crate::parser::{PResult, ParseContext};
+use crate::shared::ArgPosition::{LHS, RHS};
+use crate::span::{FixedTokenSpan, Span};
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, MathematicalOps};
+use statrs::function::gamma::gamma;
 use std::fmt::{Display, Formatter};
 use std::mem::transmute;
 use std::ops::Neg;
 
 #[derive(Clone, Debug)]
 pub enum Token {
-    OpenParen(usize),
-    ClosedParen(usize),
-    VertBar(usize),
-    Comma(usize),
-    UnaryOp(usize, UnaryOpKind),
-    BinOp(usize, BinOpKind),
+    OpenParen(FixedTokenSpan),
+    ClosedParen(FixedTokenSpan),
+    VertBar(FixedTokenSpan),
+    Comma(FixedTokenSpan),
+    UnaryOp(FixedTokenSpan, UnaryOpKind),
+    BinOp(FixedTokenSpan, BinOpKind),
     Literal(LiteralToken),
-    Sign(usize, SignKind),
     Region(Span, Vec<Token>),
-    Other(usize, char),
-    None,
-    EOF(usize), // end of file token
+    Other(FixedTokenSpan, char),
+    EOF(FixedTokenSpan), // end of file token
 }
 
 impl Token {
@@ -30,28 +34,24 @@ impl Token {
             Token::BinOp(..) => TokenKind::BinOp,
             Token::UnaryOp(..) => TokenKind::UnaryOp,
             Token::Literal(..) => TokenKind::Literal,
-            Token::Sign(..) => TokenKind::Sign,
             Token::Region(..) => TokenKind::Region,
             Token::Other(..) => TokenKind::Other,
             Token::EOF(..) => TokenKind::EOF,
-            Token::None => unreachable!(),
         }
     }
 
     pub fn span(&self) -> Span {
         match self {
-            Token::OpenParen(idx) => Span::single_token(*idx),
-            Token::ClosedParen(idx) => Span::single_token(*idx),
-            Token::VertBar(idx) => Span::single_token(*idx),
-            Token::Comma(idx) => Span::single_token(*idx),
-            Token::BinOp(idx, _) => Span::single_token(*idx),
-            Token::UnaryOp(idx, _) => Span::single_token(*idx),
+            Token::OpenParen(span) => span.to_unfixed_span(),
+            Token::ClosedParen(span) => span.to_unfixed_span(),
+            Token::VertBar(span) => span.to_unfixed_span(),
+            Token::Comma(span) => span.to_unfixed_span(),
+            Token::BinOp(span, _) => span.to_unfixed_span(),
+            Token::UnaryOp(span, _) => span.to_unfixed_span(),
             Token::Literal(lit_tok) => lit_tok.span,
-            Token::Sign(idx, _) => Span::single_token(*idx),
             Token::Region(sp, _) => *sp,
-            Token::Other(idx, _) => Span::single_token(*idx),
-            Token::EOF(idx) => Span::single_token(*idx),
-            Token::None => unreachable!(),
+            Token::Other(span, _) => span.to_unfixed_span(),
+            Token::EOF(span) => span.to_unfixed_span(),
         }
     }
 
@@ -62,13 +62,17 @@ impl Token {
             Token::VertBar(..) => ImplicitlyMultiply::Never,
             Token::Comma(..) => ImplicitlyMultiply::Never,
             Token::BinOp(..) => ImplicitlyMultiply::Never,
-            Token::UnaryOp(..) => ImplicitlyMultiply::Left,
+            Token::UnaryOp(_, op) => {
+                if op.arg_position() == RHS {
+                    ImplicitlyMultiply::Right
+                } else {
+                    ImplicitlyMultiply::Left
+                }
+            }
             Token::Literal(..) => ImplicitlyMultiply::Always,
             Token::Region(..) => ImplicitlyMultiply::Always,
             Token::EOF(..) => ImplicitlyMultiply::Never,
-            Token::Sign(..) => unreachable!(),
             Token::Other(..) => unreachable!(),
-            Token::None => unreachable!(),
         }
     }
 
@@ -82,20 +86,15 @@ impl Token {
             Token::UnaryOp(_, op) => String::from(op.to_char()),
             Token::Literal(lit_tok) => {
                 let mut result = lit_tok.content.clone();
-                if lit_tok.sign == SignKind::Minus {
-                    result.insert(0, '-');
-                }
                 if lit_tok.trailing_space == TrailingSpace::Yes {
                     // FIXME: is this correct?
                     result.push(' ');
                 }
                 result
             }
-            Token::Sign(_, sign) => String::from(sign.to_raw()),
             Token::Region(_, _) => todo!(),
             Token::Other(_, raw) => String::from(*raw),
             Token::EOF(_) => String::new(),
-            Token::None => unreachable!(),
         }
     }
 }
@@ -110,7 +109,6 @@ impl Display for Token {
 pub struct LiteralToken {
     pub(crate) span: Span,
     pub(crate) content: String,
-    pub(crate) sign: SignKind,
     pub(crate) kind: LiteralKind,
     pub(crate) trailing_space: TrailingSpace,
 }
@@ -142,7 +140,6 @@ pub enum TokenKind {
     BinOp,
     UnaryOp,
     Literal,
-    Sign,
     Region,
     Other,
     EOF, // end of file token
@@ -196,6 +193,49 @@ impl UnaryOpKind {
             UnaryOpKind::Factorial => '!',
         }
     }
+
+    pub fn arg_position(&self) -> ArgPosition {
+        match self {
+            UnaryOpKind::Neg => RHS,
+            UnaryOpKind::Factorial => LHS,
+        }
+    }
+
+    pub fn eval(&self, arg: Number, parse_ctx: &ParseContext) -> PResult<Number> {
+        match self {
+            UnaryOpKind::Neg => Ok(arg.neg().normalize()),
+            UnaryOpKind::Factorial => {
+                /*let mut res = 1;
+                for i in 2..(arg + 1) {
+                    res *= i;
+                }
+                res*/
+                match arg.normalize().to_f64() {
+                    None => diagnostic_builder!(
+                        parse_ctx.get_input().clone(),
+                        format!("can't take factorial of such a precise number as {arg}")
+                    ),
+                    Some(num) => {
+                        // FIXME: emmit warning because of lost precision
+                        let ret_num = Number::from_f64(gamma(num + 1.0));
+                        match ret_num {
+                            None => diagnostic_builder!(
+                                parse_ctx.get_input().clone(),
+                                format!("couldn't convert {num} into a 96 bit value")
+                            ),
+                            Some(num) => Ok(num),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ArgPosition {
+    LHS,
+    RHS,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -207,8 +247,6 @@ pub enum BinOpKind {
     Modulo,   // `%`
     Pow,      // FIXME: Is this a good name for "^"?
     Eq,       // `=`
-
-              // OpenParen, // This is only needed for shunting yard evaluation.
 }
 
 impl BinOpKind {
@@ -220,7 +258,6 @@ impl BinOpKind {
             BinOpKind::Multiply => '*',
             BinOpKind::Modulo => '%',
             BinOpKind::Pow => '^',
-            // OpKind::OpenParen => unimplemented!(),
             BinOpKind::Eq => '=',
         }
     }
@@ -233,7 +270,6 @@ impl BinOpKind {
             BinOpKind::Multiply => 3,
             BinOpKind::Modulo => 3, // TODO: Check this!
             BinOpKind::Pow => 4,
-            // OpKind::OpenParen => 0,
             BinOpKind::Eq => 1,
         }
     }
@@ -246,7 +282,6 @@ impl BinOpKind {
             BinOpKind::Multiply => Associativity::Left,
             BinOpKind::Modulo => Associativity::Left, // TODO: Check this!
             BinOpKind::Pow => Associativity::Right,
-            // OpKind::OpenParen => Associativity::Right, // This shouldn't be relevant!
             BinOpKind::Eq => unreachable!(),
         }
     }
@@ -260,7 +295,6 @@ impl BinOpKind {
             BinOpKind::Multiply => ArgsKind::Both,
             BinOpKind::Modulo => ArgsKind::Both,
             BinOpKind::Pow => ArgsKind::Both,
-            // OpKind::OpenParen => ArgsKind::None,
             BinOpKind::Eq => ArgsKind::Both,
         }
     }
@@ -274,7 +308,6 @@ impl BinOpKind {
             BinOpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
             BinOpKind::Modulo => args.0.unwrap() % args.1.unwrap(),
             BinOpKind::Pow => args.0.unwrap().powd(args.1.unwrap()),
-            // OpKind::OpenParen => unreachable!(),
             BinOpKind::Eq => unreachable!(), // this has some special impl
         }
         .normalize()
@@ -472,11 +505,7 @@ impl TokenStream {
 pub fn token_to_num(token: &Token) -> Option<Number> {
     if let Token::Literal(lit_tok) = token {
         if lit_tok.kind == LiteralKind::Number {
-            let mut ret = lit_tok.content.parse::<Number>().unwrap();
-            if lit_tok.sign == SignKind::Minus {
-                ret = ret.neg();
-            }
-            return Some(ret);
+            return Some(lit_tok.content.parse::<Number>().unwrap());
         }
     }
     None

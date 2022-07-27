@@ -1,50 +1,20 @@
 use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode};
 use crate::error::DiagnosticBuilder;
+use crate::parser::PResult;
 use crate::shared::LiteralToken;
 
-/*
-pub struct AstWalkerImmut<'a> {
-    node: &'a AstNode,
-}
-
-pub struct AstWalkerMut<'a> {
-    node: &'a mut AstNode,
-}
-
 pub trait AstWalker<T> {
+    fn walk_binop(&self, node: &BinOpNode) -> PResult<T>;
 
-    fn walk(&self, node: &AstNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_lit(&self, node: &LiteralToken) -> PResult<T>;
 
-    fn walk_mut(&mut self, node: &mut AstNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_unary_op(&self, node: &UnaryOpNode) -> PResult<T>;
 
-    fn _walk_inner(&self) -> Result<T, DiagnosticBuilder> {
+    fn walk_maybe_func(&self, node: &MaybeFuncNode) -> PResult<T>;
 
-    }
+    fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode) -> PResult<T>;
 
-    fn _walk_inner_mut(&mut self) -> Result<T, DiagnosticBuilder>;
-
-    fn curr_node(&self) -> &AstNode;
-
-    fn curr_node_mut(&mut self) -> &mut AstNode;
-
-}
-*/
-
-pub trait AstWalker<T> {
-    fn walk_binop(&self, node: &BinOpNode) -> Result<T, DiagnosticBuilder>;
-
-    fn walk_lit(&self, node: &LiteralToken) -> Result<T, DiagnosticBuilder>;
-
-    fn walk_unary_op(&self, node: &UnaryOpNode) -> Result<T, DiagnosticBuilder>;
-
-    fn walk_maybe_func(&self, node: &MaybeFuncNode) -> Result<T, DiagnosticBuilder>;
-
-    fn walk_func_call_or_func_def(
-        &self,
-        node: &FuncCallOrFuncDefNode,
-    ) -> Result<T, DiagnosticBuilder>;
-
-    fn walk(&self, entry: &AstNode) -> Result<T, DiagnosticBuilder> {
+    fn walk(&self, entry: &AstNode) -> PResult<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),
@@ -56,20 +26,17 @@ pub trait AstWalker<T> {
 }
 
 pub trait AstWalkerMut<T> {
-    fn walk_binop(&self, node: &mut BinOpNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_binop(&self, node: &mut BinOpNode) -> PResult<T>;
 
-    fn walk_lit(&self, node: &mut LiteralToken) -> Result<T, DiagnosticBuilder>;
+    fn walk_lit(&self, node: &mut LiteralToken) -> PResult<T>;
 
-    fn walk_unary_op(&self, node: &mut UnaryOpNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_unary_op(&self, node: &mut UnaryOpNode) -> PResult<T>;
 
-    fn walk_maybe_func(&self, node: &mut MaybeFuncNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_maybe_func(&self, node: &mut MaybeFuncNode) -> PResult<T>;
 
-    fn walk_func_call_or_func_def(
-        &self,
-        node: &mut FuncCallOrFuncDefNode,
-    ) -> Result<T, DiagnosticBuilder>;
+    fn walk_func_call_or_func_def(&self, node: &mut FuncCallOrFuncDefNode) -> PResult<T>;
 
-    fn walk(&self, entry: &mut AstNode) -> Result<T, DiagnosticBuilder> {
+    fn walk(&self, entry: &mut AstNode) -> PResult<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),
@@ -81,20 +48,17 @@ pub trait AstWalkerMut<T> {
 }
 
 pub trait AstWalkerConsuming<T> {
-    fn walk_binop(&self, node: BinOpNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_binop(&self, node: BinOpNode) -> PResult<T>;
 
-    fn walk_lit(&self, node: LiteralToken) -> Result<T, DiagnosticBuilder>;
+    fn walk_lit(&self, node: LiteralToken) -> PResult<T>;
 
-    fn walk_unary_op(&self, node: UnaryOpNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_unary_op(&self, node: UnaryOpNode) -> PResult<T>;
 
-    fn walk_maybe_func(&self, node: MaybeFuncNode) -> Result<T, DiagnosticBuilder>;
+    fn walk_maybe_func(&self, node: MaybeFuncNode) -> PResult<T>;
 
-    fn walk_func_call_or_func_def(
-        &self,
-        node: FuncCallOrFuncDefNode,
-    ) -> Result<T, DiagnosticBuilder>;
+    fn walk_func_call_or_func_def(&self, node: FuncCallOrFuncDefNode) -> PResult<T>;
 
-    fn walk(&self, entry: AstNode) -> Result<T, DiagnosticBuilder> {
+    fn walk(&self, entry: AstNode) -> PResult<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),

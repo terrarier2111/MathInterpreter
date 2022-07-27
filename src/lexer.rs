@@ -3,9 +3,9 @@ use crate::error::DiagnosticBuilder;
 use crate::shared::BinOpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::Token::EOF;
 use crate::shared::{
-    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace,
+    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace, UnaryOpKind,
 };
-use crate::span::{GenericSpan, Span};
+use crate::span::{FixedTokenSpan, GenericSpan, Span};
 
 pub(crate) struct Lexer();
 
@@ -17,57 +17,104 @@ impl Lexer {
 
     pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
-        let mut token_type = None;
+        let mut cursor = 0_usize;
+        let mut diagnostics_builder = DiagnosticBuilder::new(input.clone());
         let chars = input.chars().collect::<Vec<_>>();
-        for i in 0..chars.len() {
-            // SAFETY: This is safe because we only to to char's length - 1
-            // and chars can't be updated after we got it's length
-            let x = *unsafe { chars.get_unchecked(i) };
-            if !x.is_alphabetic() && !x.is_numeric() && x != '.' {
-                if let Some(token) = token_type.take() {
-                    // Check if the literal ends with a dot
-                    if let Token::Literal(lit_tok) = &token {
-                        if lit_tok.kind == LiteralKind::Number && lit_tok.content.ends_with('.') {
-                            return diagnostic_builder!(
-                                input.clone(),
-                                "`.` at wrong location",
-                                lit_tok.span.end() - 1
-                            );
-                        }
-                    }
-                    tokens.push(token);
-                }
+        ///
+        ///
+        /// args:
+        ///
+        /// cursor: the last processed token index
+        ///
+        fn read_into_buffer<F: Fn(char) -> bool>(
+            input: &[char],
+            cursor: usize,
+            do_continue: F,
+        ) -> (String, usize) {
+            let mut buffer = String::new();
+            let mut new_cursor = cursor/* + 1*/;
+            while input.len() > new_cursor && do_continue(input[new_cursor]) {
+                buffer.push(input[new_cursor]);
+                new_cursor += 1;
             }
-            let token = match x {
+            (buffer, new_cursor)
+        }
+
+        while input.len() > cursor {
+            let mut curr_token = None;
+            let curr = chars[cursor];
+            match curr {
+                '0'..='9' => {
+                    // FIXME: add checks like we do them everywhere else!
+                    let (buffer, new_cursor) =
+                        read_into_buffer(&chars, cursor, |x| matches!(x, '.' | ('0'..='9')));
+                    let span = Span::multi_token(cursor, new_cursor);
+                    cursor = new_cursor - 1;
+                    curr_token = Some(Token::Literal(LiteralToken {
+                        span,
+                        content: buffer,
+                        kind: LiteralKind::Number,
+                        trailing_space: TrailingSpace::from(
+                            chars.get(cursor + 1).map_or(false, |x| *x == ' '),
+                        ),
+                    }));
+                }
+                (('a'..='z') | ('A'..='Z') | '_' | '#') => {
+                    // FIXME: add checks like we do them everywhere else!
+                    let (buffer, new_cursor) = read_into_buffer(&chars, cursor, |x| {
+                        matches!(x, ('a'..='z') | ('A'..='Z') | ('0'..='9') | '_' | '#')
+                    });
+                    let span = Span::multi_token(cursor, new_cursor);
+                    cursor = new_cursor - 1;
+                    curr_token = Some(Token::Literal(LiteralToken {
+                        span,
+                        content: buffer,
+                        kind: LiteralKind::CharSeq,
+                        trailing_space: TrailingSpace::from(
+                            chars.get(cursor + 1).map_or(false, |x| *x == ' '),
+                        ),
+                    }));
+                }
+                '!' => {
+                    // FIXME: add checks like we do them everywhere else!
+                    curr_token = Some(Token::UnaryOp(
+                        FixedTokenSpan::new(cursor),
+                        UnaryOpKind::Factorial,
+                    ));
+                }
                 '|' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap(),
-                            Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq) | Token::Sign(..)
+                            Token::VertBar(..)
+                                | Token::BinOp(_, BinOpKind::Eq)
+                                | Token::UnaryOp(..)
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::VertBar(i))
+                    curr_token = Some(Token::VertBar(FixedTokenSpan::new(cursor)));
                 }
                 '=' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap(),
-                            Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq) | Token::Sign(..)
+                            Token::VertBar(..)
+                                | Token::BinOp(_, BinOpKind::Eq)
+                                | Token::UnaryOp(..)
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::BinOp(i, BinOpKind::Eq))
+                    curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), BinOpKind::Eq));
                 }
                 '(' => {
                     if !tokens.is_empty()
@@ -75,11 +122,11 @@ impl Lexer {
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::OpenParen(i))
+                    curr_token = Some(Token::OpenParen(FixedTokenSpan::new(cursor)));
                 }
                 ')' => {
                     let last = tokens.last().unwrap();
@@ -88,16 +135,13 @@ impl Lexer {
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    if !tokens.is_empty() && matches!(last, Token::Sign(..)) {
-                        unimplemented!("Signs in front of `(` are currently unsupported")
-                    }
-                    Some(Token::ClosedParen(i))
+                    curr_token = Some(Token::ClosedParen(FixedTokenSpan::new(cursor)));
                 }
-                ' ' => Some(Token::None),
+                ' ' => {}
                 ',' => {
                     if !tokens.is_empty()
                         && matches!(
@@ -107,104 +151,115 @@ impl Lexer {
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::Comma(i))
+                    curr_token = Some(Token::Comma(FixedTokenSpan::new(cursor)));
                 }
                 '*' | '×' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::BinOp(i, Multiply))
+                    curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Multiply));
                 }
                 '/' | ':' | '÷' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location.", x),
-                            i
+                            format!("`{}` at wrong location.", curr),
+                            cursor
                         );
                     }
-                    Some(Token::BinOp(i, Divide))
+                    curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Divide));
                 }
                 '%' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::BinOp(i, Modulo))
+                    curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Modulo));
                 }
                 '^' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::Sign
+                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
                             input.clone(),
-                            format!("`{}` at wrong location", x),
-                            i
+                            format!("`{}` at wrong location", curr),
+                            cursor
                         );
                     }
-                    Some(Token::BinOp(i, Pow))
+                    curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Pow));
                 }
-                '+' | '-' | '−' => {
-                    let sign = match x {
-                        '-' | '−' => (SignKind::Minus, BinOpKind::Subtract),
-                        _ => (SignKind::Plus, BinOpKind::Add),
-                    };
-                    if let Some(token) = token_type.take() {
-                        tokens.push(token);
-                    }
-                    if !tokens.is_empty() {
-                        if matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::Sign
-                        ) {
-                            return diagnostic_builder!(
-                                input.clone(),
-                                format!("`{}` at wrong location", x),
-                                i
-                            );
-                        }
-                        match &tokens.last().unwrap() {
-                            Token::BinOp(_, _) | Token::OpenParen(_) => {
-                                Some(Token::Sign(i, sign.0))
-                            }
-                            _ => Some(Token::BinOp(i, sign.1)),
-                        }
+                '+' => {
+                    let is_unary = if let Some(tty) = tokens.last() {
+                        tty.kind() == TokenKind::BinOp
                     } else {
-                        // This has to be an Op instead of a Sign because of abs modes.
-                        Some(Token::BinOp(i, sign.1))
+                        true
+                    };
+                    if !is_unary {
+                        curr_token =
+                            Some(Token::BinOp(FixedTokenSpan::new(cursor), BinOpKind::Add));
+                    }
+                }
+                '-' | '−' => {
+                    if !tokens.is_empty()
+                        && matches!(
+                            tokens.last().unwrap().kind(),
+                            TokenKind::VertBar | TokenKind::UnaryOp
+                        )
+                    {
+                        return diagnostic_builder!(
+                            input.clone(),
+                            format!("`{}` at wrong location", curr),
+                            cursor
+                        );
+                    }
+                    let is_unary = if let Some(tty) = tokens.last() {
+                        tty.kind() == TokenKind::BinOp || tty.kind() == TokenKind::OpenParen
+                    } else {
+                        true
+                    };
+                    if is_unary {
+                        curr_token = Some(Token::UnaryOp(
+                            FixedTokenSpan::new(cursor),
+                            UnaryOpKind::Neg,
+                        ));
+                    } else {
+                        curr_token = Some(Token::BinOp(
+                            FixedTokenSpan::new(cursor),
+                            BinOpKind::Subtract,
+                        ));
                     }
                 }
                 _ => {
-                    if x.is_numeric() || x == '.' || x.is_alphabetic() || x == '_' || x == '#' {
+                    /* if x.is_numeric() || x == '.' || x.is_alphabetic() || x == '_' || x == '#' {
                         let alphabetic = x.is_alphabetic() || x == '_' || x == '#';
                         match &mut token_type {
                             None => {
@@ -268,31 +323,17 @@ impl Lexer {
                     } else {
                         tokens.push(Token::Other(i, x));
                     }
-                    None
-                }
-            };
-            if let Some(token) = token {
-                match &token {
-                    Token::Literal(..) => {}
-                    Token::None => {
-                        // TODO: Remove this and make whitespace return None option and make literals/numbers return their respective token type! (how should we handle invalid/other tokens?)
-                        if let Some(token) = token_type.take() {
-                            tokens.push(token);
-                        }
-                    }
-                    _ => {
-                        if let Some(token) = token_type.take() {
-                            tokens.push(token);
-                        }
-                        tokens.push(token);
-                    }
+                    None*/
+                    curr_token = Some(Token::Other(FixedTokenSpan::new(cursor), curr));
                 }
             }
+
+            if let Some(token) = curr_token.take() {
+                tokens.push(token);
+            }
+            cursor += 1;
         }
-        if let Some(token) = token_type.take() {
-            tokens.push(token);
-        }
-        tokens.push(EOF(chars.len()));
+        tokens.push(EOF(FixedTokenSpan::new(chars.len())));
         Ok(tokens)
     }
 }

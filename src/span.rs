@@ -53,34 +53,49 @@ impl Span {
     }
 
     pub fn is_none(&self) -> bool {
-        self.start == Self::NONE.start && self.end == Self::NONE.end
+        // we assume spans that are starting at usize::MAX - u8::MAX are also none spans
+        // because we need this condition in order to have safe NONE FixedTokenSpans
+        // and the likelihood of a valid span being considered invalid because of this is close to zero
+        self.start >= (Self::NONE.start - u8::MAX as usize) && self.end == Self::NONE.end
     }
 }
 
 impl GenericSpan for Span {
-    #[inline]
+    #[inline(always)]
     fn start(&self) -> usize {
         self.start
     }
 
-    #[inline]
+    #[inline(always)]
     fn end(&self) -> usize {
         self.end
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct FixedTokenSpan<const SIZE: usize = 1>(pub usize); // FIXME: make use of FixedTokenSpan
+pub struct FixedTokenSpan<const SIZE: usize = 1>(pub usize);
 
 impl<const SIZE: usize> FixedTokenSpan<SIZE> {
+    // pub const NONE: FixedTokenSpan = FixedTokenSpan::new(usize::MAX - 1);
+
+    #[inline(always)]
+    pub const fn new(start: usize) -> Self {
+        Self(start)
+    }
+
+    // FIXME: make this const once const traits are there!
     #[inline]
-    pub const fn new(position: usize) -> Self {
-        Self(position)
+    pub fn to_unfixed_span(self) -> Span {
+        Span::multi_token(self.start(), self.end())
+    }
+
+    pub const fn none() -> FixedTokenSpan<SIZE> {
+        FixedTokenSpan::new(usize::MAX - SIZE)
     }
 }
 
 impl<const SIZE: usize> GenericSpan for FixedTokenSpan<SIZE> {
-    #[inline]
+    #[inline(always)]
     fn start(&self) -> usize {
         self.0
     }
@@ -88,6 +103,13 @@ impl<const SIZE: usize> GenericSpan for FixedTokenSpan<SIZE> {
     #[inline]
     fn end(&self) -> usize {
         self.0 + SIZE // FIXME: should this be "self.0 - 1 + SIZE"?
+    }
+}
+
+impl<const SIZE: usize> From<usize> for FixedTokenSpan<SIZE> {
+    #[inline(always)]
+    fn from(start: usize) -> Self {
+        Self::new(start)
     }
 }
 
