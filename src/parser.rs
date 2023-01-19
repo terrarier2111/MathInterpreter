@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode};
+use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, UnaryOpNode};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
 use crate::equation_evaluator::EvalWalker;
 use crate::equation_simplifier::simplify;
@@ -13,10 +13,11 @@ use crate::{
     _lib, diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
     register_builtin_func, register_const, ANSMode, Config, DiagnosticsConfig, Mode,
 };
-use rust_decimal::MathematicalOps;
+use rust_decimal::{Decimal, MathematicalOps};
 use std::collections::HashMap;
 use std::ops::Neg;
 use std::rc::Rc;
+use rust_decimal::prelude::ToPrimitive;
 
 const NONE: usize = usize::MAX;
 
@@ -37,7 +38,7 @@ impl<'a> Parser<'a> {
             parse_ctx,
             ans_mode,
             curr,
-            action: Action::Eval,
+            action: Action::Eval(None),
         }
     }
 
@@ -123,9 +124,12 @@ impl<'a> Parser<'a> {
 
         match mode {
             Mode::Eval => {
-                let val = equation_evaluator::eval(&mut self.parse_ctx, head_expr);
+                let val = equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr);
                 match val {
-                    Ok(val) => ParseResult::new_ok(val),
+                    Ok(val) => {
+                        self.parse_ctx.set_last(val.clone());
+                        ParseResult::new_ok(val)
+                    },
                     Err(err) => ParseResult::new_err(err),
                 }
             }
@@ -312,6 +316,14 @@ impl<'a> Parser<'a> {
                     )
                 }
             }
+            Token::BinOp(_, op) => {
+                let op = *op;
+                self.advance();
+                Ok(AstNode::PartialBinOp(PartialBinOpNode {
+                    op,
+                    rhs: Box::new(self.parse_primary()?),
+                }))
+            }
             _ => diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
                 format!(
@@ -439,7 +451,8 @@ impl ParseContext {
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
         register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
-        register_builtin_func!(ret, "ln", 1, |nums| nums[0].ln());
+        register_builtin_func!(ret, "acos", 1, |nums| Decimal::try_from(nums[0].to_f64().unwrap().acos()).unwrap()); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "ln", 1, |nums| nums[0].ln()); // acos(-2) panics!
         register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
         register_builtin_func!(ret, "floor", 1, |nums| nums[0].floor());
         register_builtin_func!(ret, "ceil", 1, |nums| nums[0].ceil());
@@ -461,6 +474,16 @@ impl ParseContext {
     #[inline]
     pub fn get_input(&self) -> &String {
         &self.input
+    }
+
+    #[inline]
+    pub fn get_last(&self) -> &Option<Number> {
+        &self.last_result
+    }
+
+    #[inline]
+    pub fn set_last(&mut self, val: Option<Number>) {
+        self.last_result = val;
     }
 
     pub fn exists_const(&self, name: &String) -> bool {
@@ -597,7 +620,7 @@ pub enum Action {
     DefineVar(String),                                    // var name
     DefineFunc(String, Box<[String]>),                    // function name, function arguments
     DefineRecFunc(String, Box<[String]>, (usize, usize)), // function name, function arguments, (recursive min idx, recursive min val)
-    Eval,
+    Eval(Option<PartialBinOpNode>),
 }
 
 impl Action {
@@ -605,7 +628,7 @@ impl Action {
         match self {
             Action::DefineVar(_) => ActionKind::DefineVar,
             Action::DefineFunc(_, _) => ActionKind::DefineFunc,
-            Action::Eval => ActionKind::Eval,
+            Action::Eval(_) => ActionKind::Eval,
             Action::DefineRecFunc(_, _, _) => ActionKind::DefineRecFunc,
         }
     }
@@ -656,6 +679,11 @@ impl LitWalker for FunctionInitValidator<'_> {
             );
         }
         Ok(())
+    }
+
+    #[inline]
+    fn get_input(&self) -> &String {
+        self.parse_ctx.get_input()
     }
 }
 

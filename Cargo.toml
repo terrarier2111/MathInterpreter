@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 # provides 96 bit floating point numbers
-rust_decimal = { version = "1.25.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
-rust_decimal_macros = "1.25.0"
+rust_decimal = { version = "1.27.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
+rust_decimal_macros = "1.27.0"
 colored = "2.0.0"
 # used for factorial calculations for floating point numbers
-statrs = "0.15.0"
+statrs = "0.16.0"

@@ -19,6 +19,7 @@ use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 
 // TODO: add ans support to new parser
 // TODO: support 2 types of numbers (via an enum): whole numbers and floating point numbers in order to avoid inaccurracies when doing calculations
+// TODO: do a better job at preserving spans until the end
 
 fn main() {
     colored::control::set_override(true);

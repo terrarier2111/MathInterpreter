@@ -1,4 +1,5 @@
 use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode};
+use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::parser::PResult;
 use crate::shared::LiteralToken;
@@ -21,8 +22,11 @@ pub trait AstWalker<T> {
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
+            AstNode::PartialBinOp(_) => diagnostic_builder!(self.get_input().clone(), "weird stuff"), // FIXME: add span by using `AstEntry`!
         }
     }
+
+    fn get_input(&self) -> &String;
 }
 
 pub trait AstWalkerMut<T> {
@@ -43,6 +47,7 @@ pub trait AstWalkerMut<T> {
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
+            AstNode::PartialBinOp(_) => panic!(),
         }
     }
 }
@@ -65,12 +70,15 @@ pub trait AstWalkerConsuming<T> {
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
+            AstNode::PartialBinOp(_) => panic!(),
         }
     }
 }
 
 pub trait LitWalker {
     fn walk_lit(&self, node: &LiteralToken) -> Result<(), DiagnosticBuilder>;
+
+    fn get_input(&self) -> &String;
 }
 
 impl<T: LitWalker> AstWalker<()> for T {
@@ -83,8 +91,9 @@ impl<T: LitWalker> AstWalker<()> for T {
         LitWalker::walk_lit(self, node)
     }
 
-    fn walk_unary_op(&self, _node: &UnaryOpNode) -> Result<(), DiagnosticBuilder> {
-        todo!()
+    fn walk_unary_op(&self, node: &UnaryOpNode) -> Result<(), DiagnosticBuilder> {
+        self.walk(&*node.val)?;
+        Ok(())
     }
 
     fn walk_maybe_func(&self, node: &MaybeFuncNode) -> Result<(), DiagnosticBuilder> {
@@ -104,6 +113,11 @@ impl<T: LitWalker> AstWalker<()> for T {
         }
         Ok(())
     }
+
+    #[inline]
+    fn get_input(&self) -> &String {
+        LitWalker::get_input(self)
+    }
 }
 
 pub trait LitWalkerMut {
@@ -120,8 +134,9 @@ impl<T: LitWalkerMut> AstWalkerMut<()> for T {
         LitWalkerMut::walk_lit(self, node)
     }
 
-    fn walk_unary_op(&self, _node: &mut UnaryOpNode) -> Result<(), DiagnosticBuilder> {
-        todo!()
+    fn walk_unary_op(&self, node: &mut UnaryOpNode) -> Result<(), DiagnosticBuilder> {
+        self.walk(&mut *node.val)?;
+        Ok(())
     }
 
     fn walk_maybe_func(&self, node: &mut MaybeFuncNode) -> Result<(), DiagnosticBuilder> {
@@ -157,8 +172,9 @@ impl<T: LitWalkerConsuming> AstWalkerConsuming<()> for T {
         LitWalkerConsuming::walk_lit(self, node)
     }
 
-    fn walk_unary_op(&self, _node: UnaryOpNode) -> Result<(), DiagnosticBuilder> {
-        todo!()
+    fn walk_unary_op(&self, node: UnaryOpNode) -> Result<(), DiagnosticBuilder> {
+        self.walk(*node.val)?;
+        Ok(())
     }
 
     fn walk_maybe_func(&self, node: MaybeFuncNode) -> Result<(), DiagnosticBuilder> {

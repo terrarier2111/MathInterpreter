@@ -5,20 +5,69 @@ use crate::ast_walker::AstWalker;
 use crate::diagnostic_builder;
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext};
-use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace};
+use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind};
 use crate::span::Span;
 use std::hint::unreachable_unchecked;
 use std::mem;
-use std::ops::Neg;
+use std::ops::{Add, Neg, Sub};
+use crate::_lib::ANSMode;
 
 pub(crate) fn eval(
     parse_ctx: &mut ParseContext,
+    ans_mode: ANSMode,
     entry: AstNode,
 ) -> Result<Option<Number>, DiagnosticBuilder> {
-    if entry.kind() != AstNodeKind::BinOp {
-        let walker = EvalWalker { ctx: parse_ctx };
-        return walker.walk(&entry).map(|val| Some(val));
-    }
+        if entry.kind() != AstNodeKind::BinOp {
+            let walker = EvalWalker { ctx: parse_ctx };
+            let ret = if let AstNode::PartialBinOp(node) = entry {
+                if node.op == BinOpKind::Eq {
+                    return diagnostic_builder!(parse_ctx.get_input().clone(), "can't set a previous result equal to some new one - ANS doesn't work with `Eq`.");
+                }
+                if ans_mode == ANSMode::Never {
+                    return diagnostic_builder!(parse_ctx.get_input().clone(), "ANS is disabled!"); // FIXME: improve this!
+                }
+                if let Some(last) = parse_ctx.get_last() {
+                    match node.op {
+                        BinOpKind::Eq | BinOpKind::Add | BinOpKind::Subtract => {
+                            // `Eq` was just checked for above and the other two
+                            // are transformed into unaries in the lexer.
+                            unreachable!()
+                        },
+                        _ => {
+                            walker.walk(&*node.rhs).map(|x| node.op.eval((Some(last.clone()), Some(x))))
+                        }
+                    }
+                } else {
+                    if ans_mode == ANSMode::WhenImplicit && (node.op == BinOpKind::Add || node.op == BinOpKind::Subtract) {
+                        let mut ret = walker.walk(&*node.rhs);
+                        if node.op == BinOpKind::Subtract {
+                            ret = ret.map(|x| x.neg());
+                        }
+                        ret
+                    } else {
+                        return diagnostic_builder!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.");
+                    }
+                }
+            } else if let AstNode::UnaryOp(node) = &entry {
+                if ans_mode == ANSMode::Always && (node.op == UnaryOpKind::Neg || node.op == UnaryOpKind::Pos) {
+                    if let Some(last) = parse_ctx.get_last() {
+                        if node.op == UnaryOpKind::Neg {
+                            walker.walk(&*node.val).map(|x| last.sub(x))
+                        } else {
+                            walker.walk(&*node.val).map(|x| last.add(x))
+                        }
+                    } else {
+                        return diagnostic_builder!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.");
+                    }
+                } else {
+                    walker.walk(&entry)
+                }
+            } else {
+                walker.walk(&entry)
+            }.map(|val| Some(val));
+
+            return ret;
+        }
 
     // FIXME: get rid of all that cloning by consuming entry
     let (entry, action) = if let AstNode::BinOp(node) = entry {
@@ -64,10 +113,29 @@ pub(crate) fn eval(
                     AstNode::UnaryOp(_) => {
                         return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got an unary operation");
                     }
+                    AstNode::PartialBinOp(_) => {
+                        /*if ans_mode == ANSMode::Never {
+                            return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a partial binary operation");
+                        }
+                        match node.op {
+                            BinOpKind::Add => {
+                                if ans_mode != ANSMode::WhenImplicit {
+                                    parse_ctx
+                                }
+                            }
+                            BinOpKind::Subtract => {}
+                            BinOpKind::Divide => {}
+                            BinOpKind::Multiply => {}
+                            BinOpKind::Modulo => {}
+                            BinOpKind::Pow => {}
+                            BinOpKind::Eq => panic!(),
+                        }*/
+                        panic!()
+                    }
                 },
             )
         } else {
-            (AstNode::BinOp(node), Action::Eval)
+            (AstNode::BinOp(node), Action::Eval(None))
         }
     } else {
         // SAFETY: above we just checked if the current token kind is BinOp
@@ -92,7 +160,7 @@ pub(crate) fn eval(
             Ok(None)
         }
         Action::DefineRecFunc(_, _, _) => unimplemented!(),
-        Action::Eval => {
+        Action::Eval(_) => {
             let walker = EvalWalker { ctx: parse_ctx };
 
             walker.walk(&entry).map(|val| Some(val))
@@ -176,5 +244,9 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 format!("there is no function named {}", node.name)
             )
         }
+    }
+
+    fn get_input(&self) -> &String {
+        self.ctx.get_input()
     }
 }

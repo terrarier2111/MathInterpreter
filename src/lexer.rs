@@ -223,7 +223,10 @@ impl Lexer {
                     } else {
                         true
                     };
-                    if !is_unary {
+                    if is_unary {
+                        curr_token =
+                            Some(Token::UnaryOp(FixedTokenSpan::new(cursor), UnaryOpKind::Pos));
+                    } else {
                         curr_token =
                             Some(Token::BinOp(FixedTokenSpan::new(cursor), BinOpKind::Add));
                     }

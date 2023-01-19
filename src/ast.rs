@@ -3,8 +3,8 @@ use crate::span::Span;
 
 #[derive(Clone, Debug)]
 pub struct AstEntry {
-    span: Span,
-    node: AstNode,
+    pub(crate) span: Span,
+    pub(crate) node: AstNode,
 }
 
 #[derive(Clone, Debug)]
@@ -14,6 +14,7 @@ pub enum AstNode {
     Lit(LiteralToken),
     BinOp(BinOpNode),
     UnaryOp(UnaryOpNode),
+    PartialBinOp(PartialBinOpNode),
 }
 
 impl AstNode {
@@ -24,6 +25,7 @@ impl AstNode {
             AstNode::Lit(_) => AstNodeKind::Lit,
             AstNode::BinOp(_) => AstNodeKind::BinOp,
             AstNode::UnaryOp(_) => AstNodeKind::UnaryOp,
+            AstNode::PartialBinOp(_) => AstNodeKind::PartialBinaryOp,
         }
     }
 }
@@ -35,6 +37,7 @@ pub enum AstNodeKind {
     Lit,
     BinOp,
     UnaryOp,
+    PartialBinaryOp,
 }
 
 // This node could either be a function call or a function def
@@ -63,4 +66,10 @@ pub struct BinOpNode {
 pub struct UnaryOpNode {
     pub(crate) op: UnaryOpKind,
     pub(crate) val: Box<AstNode>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PartialBinOpNode {
+    pub(crate) op: BinOpKind,
+    pub(crate) rhs: Box<AstNode>,
 }

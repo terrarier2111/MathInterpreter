@@ -182,6 +182,7 @@ impl ImplicitlyMultiply {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum UnaryOpKind {
+    Pos,       // `+`
     Neg,       // `-`
     Factorial, // `!`
 }
@@ -189,6 +190,7 @@ pub enum UnaryOpKind {
 impl UnaryOpKind {
     pub fn to_char(&self) -> char {
         match self {
+            UnaryOpKind::Pos => '+',
             UnaryOpKind::Neg => '-',
             UnaryOpKind::Factorial => '!',
         }
@@ -196,13 +198,15 @@ impl UnaryOpKind {
 
     pub fn arg_position(&self) -> ArgPosition {
         match self {
+            UnaryOpKind::Pos => RHS,
             UnaryOpKind::Neg => RHS,
             UnaryOpKind::Factorial => LHS,
         }
     }
 
-    pub fn eval(&self, arg: Number, parse_ctx: &ParseContext) -> PResult<Number> {
+    pub(crate) fn eval(&self, arg: Number, parse_ctx: &ParseContext) -> PResult<Number> {
         match self {
+            UnaryOpKind::Pos => Ok(arg.normalize()),
             UnaryOpKind::Neg => Ok(arg.neg().normalize()),
             UnaryOpKind::Factorial => {
                 /*let mut res = 1;
