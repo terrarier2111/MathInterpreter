@@ -243,7 +243,7 @@ impl<'a> Parser<'a> {
 
         Ok(Some(RecFuncTail {
             idx: idx.unwrap(),
-            val: Box::new(val),
+            val,
         }))
     }
 
@@ -921,6 +921,13 @@ impl RecursiveFunction {
         end_val: AstNode,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
+        if arg_names.is_empty() {
+            return diagnostic_builder!(
+                parse_ctx.input.clone(),
+                "a recursion argument is required for a recursive function"
+            );
+        }
+
         // verify arguments are valid
         let validator = FunctionInitValidator {
             parse_ctx,
@@ -955,7 +962,6 @@ impl RecursiveFunction {
             );
         }
 
-        println!("arg_val: {:?}", &arg_values[0]);
         let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.normalize().to_string();
         let mut def = false;
         if rec_param.parse::<usize>().is_err() {

@@ -105,7 +105,6 @@ pub(crate) fn eval(
                             },
                         )?
                     }),
-                    AstNode::RecFuncDef(_) => panic!(),
                     AstNode::Lit(var) => Action::DefineVar(var.content.clone()),
                     AstNode::BinOp(_) => {
                         return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a binary operation");
@@ -155,9 +154,8 @@ pub(crate) fn eval(
             Ok(Some(result))
         }
         Action::DefineFunc(name, params) => {
-            println!("{:?}", entry);
             if let Some(tail) = tail {
-                let func = RecursiveFunction::new(name, params, entry, tail.idx, *tail.val, parse_ctx)?;
+                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val, parse_ctx)?;
                 parse_ctx.register_rec_func(func);
             } else {
                 let func = Function::new(name, params, entry, parse_ctx)?;
@@ -212,7 +210,6 @@ impl AstWalker<Number> for EvalWalker<'_> {
     }
 
     fn walk_maybe_func(&self, node: &MaybeFuncNode) -> PResult<Number> {
-        println!("try call func 1!");
         if let Some(result) = self.ctx.try_call_func(
             &node.name,
             node.param.as_ref().map_or_else(
@@ -221,9 +218,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
             ),
         ) {
             let result = result?;
-            println!("tmp_ast: {:?}", result);
             self.walk(&result)
-            // fib(n)=fib(n-1)*fib(n-2) @2=1
         } else {
             let ast = if let Some(param) = &node.param {
                 AstNode::BinOp(BinOpNode {
@@ -249,7 +244,6 @@ impl AstWalker<Number> for EvalWalker<'_> {
     }
 
     fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode) -> PResult<Number> {
-        println!("try call func 2!");
         if let Some(result) = self.ctx.try_call_func(&node.name, node.params.clone()) {
             let result = result?;
             self.walk(&result)
@@ -261,6 +255,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
         }
     }
 
+    #[inline]
     fn get_input(&self) -> &String {
         self.ctx.get_input()
     }

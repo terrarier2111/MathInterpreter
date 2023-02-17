@@ -11,7 +11,6 @@ pub struct AstEntry {
 pub enum AstNode {
     FuncCallOrFuncDef(FuncCallOrFuncDefNode),
     MaybeFunc(MaybeFuncNode),
-    RecFuncDef(RecFuncNode),
     Lit(LiteralToken),
     BinOp(BinOpNode),
     UnaryOp(UnaryOpNode),
@@ -27,7 +26,6 @@ impl AstNode {
             AstNode::BinOp(_) => AstNodeKind::BinOp,
             AstNode::UnaryOp(_) => AstNodeKind::UnaryOp,
             AstNode::PartialBinOp(_) => AstNodeKind::PartialBinaryOp,
-            AstNode::RecFuncDef(_) => AstNodeKind::RecFuncDef,
         }
     }
 }
@@ -36,7 +34,6 @@ impl AstNode {
 pub enum AstNodeKind {
     FuncCallOrFuncDef,
     MaybeFunc,
-    RecFuncDef,
     Lit,
     BinOp,
     UnaryOp,
@@ -59,16 +56,9 @@ pub struct MaybeFuncNode {
 }
 
 #[derive(Clone, Debug)]
-pub struct RecFuncNode {
-    pub(crate) name: String,
-    pub(crate) params: Box<[AstNode]>, // params consisting of their values
-    pub(crate) tail: RecFuncTail,
-}
-
-#[derive(Clone, Debug)]
 pub struct RecFuncTail {
     pub(crate) idx: usize,
-    pub(crate) val: Box<AstNode>,
+    pub(crate) val: AstNode,
 }
 
 #[derive(Clone, Debug)]
