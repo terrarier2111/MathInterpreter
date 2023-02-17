@@ -1,6 +1,6 @@
-use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, UnaryOpNode};
+use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
-use crate::equation_evaluator::EvalWalker;
+use crate::equation_evaluator::{EvalWalker, resolve_simple};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
@@ -50,6 +50,12 @@ impl<'a> Parser<'a> {
             }
             result
         }
+
+        let func = match self.try_parse_function() {
+            Ok(val) => val,
+            Err(err) => return ParseResult::new_err(err),
+        };
+
         // Make implicit multiplications explicit!
         let mut last_token_mult = ImplicitlyMultiply::Never;
         let mut multiplications = vec![];
@@ -83,7 +89,12 @@ impl<'a> Parser<'a> {
         while !self.eat(TokenKind::EOF) {
             let curr_token_mult = if let Some(lit) = self.parse_lit() {
                 if self.parse_ctx.exists_fn(&lit.content)
-                    || self.parse_ctx.exists_builtin_func(&lit.content)
+                    || self.parse_ctx.exists_builtin_func(&lit.content) || func.as_ref().map(|node| match node {
+                    AstNode::FuncCallOrFuncDef(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
+                    AstNode::MaybeFunc(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
+                    // AstNode::RecFuncDef(_) => {}
+                    _ => false,
+                }).unwrap_or(false)
                 {
                     ImplicitlyMultiply::Never
                 } else {
@@ -110,12 +121,14 @@ impl<'a> Parser<'a> {
         self.token_stream
             .replace_internal_tokens(tokens.into_boxed_slice());
         self.reset();
-        println!(
-            "tokens: {}",
-            tokens_to_string(&self.token_stream.internal_tokens())
-        );
 
         let head_expr = match self.parse_expr() {
+            Ok(val) => val,
+            Err(err) => {
+                return ParseResult::new_err(err);
+            }
+        };
+        let tail = match self.try_parse_rec_tail() {
             Ok(val) => val,
             Err(err) => {
                 return ParseResult::new_err(err);
@@ -124,7 +137,7 @@ impl<'a> Parser<'a> {
 
         match mode {
             Mode::Eval => {
-                let val = equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr);
+                let val = equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr, tail);
                 match val {
                     Ok(val) => {
                         self.parse_ctx.set_last(val.clone());
@@ -200,6 +213,47 @@ impl<'a> Parser<'a> {
             } else {
                 self.go_back();
                 Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn try_parse_rec_tail(&mut self) -> PResult<Option<RecFuncTail>> {
+        if !self.eat(TokenKind::At) {
+            // FIXME: is this the correct handling?
+            return Ok(None);
+        }
+
+        let idx = self.try_parse_natural()?;
+
+        if idx.is_none() {
+            if let Some(token) = self.token_stream.get_next() {
+                return diagnostic_builder_spanned!(self.parse_ctx.input.clone(), "expected natural number after `@`", token.span()); // FIXME: improve this error message!
+            } else {
+                return diagnostic_builder!(self.parse_ctx.input.clone(), "expected natural number after `@`"); // FIXME: improve this error message!
+            }
+        }
+
+        if !self.eat_binop(BinOpKind::Eq) {
+            return diagnostic_builder!(self.parse_ctx.input.clone(), "expected `=`"); // FIXME: improve this error message!
+        }
+
+        let val = self.parse_primary()?/*self.parse_binop()?*/;
+
+        Ok(Some(RecFuncTail {
+            idx: idx.unwrap(),
+            val: Box::new(val),
+        }))
+    }
+
+    fn try_parse_natural(&mut self) -> PResult<Option<usize>> {
+        if let Token::Literal(lit) = &self.curr {
+            let ret = lit.clone();
+            self.advance();
+            match ret.content.parse() {
+                Ok(val) => Ok(Some(val)),
+                Err(_) => diagnostic_builder_spanned!(self.parse_ctx.input.clone(), format!("expected natural number, found `{}`", &ret.content), ret.span),
             }
         } else {
             Ok(None)
@@ -291,7 +345,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary(&mut self) -> PResult<AstNode> {
-        println!("parsing primary!");
         match &self.curr {
             Token::OpenParen(_) => {
                 let lhs = self.parse_paren_expr()?;
@@ -337,7 +390,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unary_arg_rhs(&mut self) -> PResult<AstNode> {
-        println!("parsing unary rhs");
         if let Token::UnaryOp(_, op) = &self.curr {
             let op = *op;
             self.advance();
@@ -352,7 +404,6 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parse_unary_arg_lhs(&mut self, lhs: AstNode) -> PResult<AstNode> {
-        println!("parsing unary lhs");
         if let Token::UnaryOp(_, op) = &self.curr {
             let op = *op;
             if op.arg_position() == ArgPosition::LHS {
@@ -433,6 +484,7 @@ pub(crate) struct ParseContext {
     last_result: Option<Number>,
     vars: HashMap<String, (bool, Number)>,
     funcs: HashMap<String, Function>,
+    rec_funcs: HashMap<String, RecursiveFunction>,
     builtin_funcs: HashMap<String, BuiltInFunction>,
 }
 
@@ -443,6 +495,7 @@ impl ParseContext {
             last_result: None,
             vars: Default::default(),
             funcs: Default::default(),
+            rec_funcs: Default::default(),
             builtin_funcs: Default::default(),
         };
         register_const!(ret, "pi", Number::PI);
@@ -560,7 +613,7 @@ impl ParseContext {
 
     pub fn exists_fn(&self, name: &String) -> bool {
         let name = name.to_lowercase();
-        self.funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
+        self.funcs.contains_key(&*name) || self.rec_funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
     }
 
     pub fn try_call_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<AstNode>> {
@@ -568,17 +621,21 @@ impl ParseContext {
         let func = self.funcs.get(&*name);
         match func {
             None => {
-                let result = self.call_builtin_func(&name, args);
-                result.map(|pr| {
-                    pr.map(|num| {
-                        AstNode::Lit(LiteralToken {
-                            span: Span::NONE,
-                            content: num.to_string(),
-                            kind: LiteralKind::Number,
-                            trailing_space: TrailingSpace::Maybe,
+                if self.rec_funcs.contains_key(&name) {
+                    self.call_rec_func(&name, args)
+                } else {
+                    let result = self.call_builtin_func(&name, args);
+                    result.map(|pr| {
+                        pr.map(|num| {
+                            AstNode::Lit(LiteralToken {
+                                span: Span::NONE,
+                                content: num.to_string(),
+                                kind: LiteralKind::Number,
+                                trailing_space: TrailingSpace::Maybe,
+                            })
                         })
                     })
-                })
+                }
             }
             Some(func) => Some(func.build_tokens(args, self)),
         }
@@ -587,6 +644,26 @@ impl ParseContext {
     pub fn register_func(&mut self, func: Function) {
         let name = func.name.to_lowercase();
         self.funcs.insert(name, func);
+    }
+
+    fn call_rec_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<AstNode>> {
+        let func_name = name.to_lowercase();
+        match self.rec_funcs.get(&*func_name) {
+            None =>
+            /*diagnostic_builder!(
+                self.input.clone(),
+                format!("There is no function such as `{}`.", name) // FIXME: emmit this error message somewhere else!
+            )*/
+                {
+                    None
+                }
+            Some(func) => Some(func.build_tokens(args, self)),
+        }
+    }
+
+    pub fn register_rec_func(&mut self, func: RecursiveFunction) {
+        let name = func.name.to_lowercase();
+        self.rec_funcs.insert(name, func);
     }
 
     pub(crate) fn exists_builtin_func(&self, name: &String) -> bool {
@@ -670,11 +747,48 @@ impl LitWalker for FunctionInitValidator<'_> {
         if lit_tok.kind == LiteralKind::CharSeq
             && !self.arg_names.contains(&lit_tok.content)
             && !self.parse_ctx.exists_const(&lit_tok.content)
+            && (!self.parse_ctx.exists_fn(&lit_tok.content))
+        {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "Not an argument, function or const",
+                lit_tok.span
+            );
+        }
+
+        if &lit_tok.content == self.func_name {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "Can't call non-recursive function inside its definition",
+                lit_tok.span
+            );
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn get_input(&self) -> &String {
+        self.parse_ctx.get_input()
+    }
+}
+
+struct RecFunctionInitValidator<'a> {
+    parse_ctx: &'a ParseContext,
+    arg_names: &'a Box<[String]>,
+    func_name: &'a String,
+}
+
+impl LitWalker for RecFunctionInitValidator<'_> {
+    fn walk_lit(&self, lit_tok: &LiteralToken) -> Result<(), DiagnosticBuilder> {
+        if lit_tok.kind == LiteralKind::CharSeq
+            && !self.arg_names.contains(&lit_tok.content)
+            && !self.parse_ctx.exists_const(&lit_tok.content)
             && (!self.parse_ctx.exists_fn(&lit_tok.content) || &lit_tok.content == self.func_name)
         {
             return diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
-                "Not an argument or const",
+                "Not an argument, function or const",
                 lit_tok.span
             );
         }
@@ -786,6 +900,94 @@ impl BuiltInFunction {
             args.push(walked?);
         }
         let result = (self.inner)(args);
+        Ok(result)
+    }
+}
+
+pub(crate) struct RecursiveFunction {
+    name: String,
+    ast: AstNode,
+    args: Box<[String]>,
+    end_idx: usize,
+    end_val: AstNode,
+}
+
+impl RecursiveFunction {
+    pub fn new(
+        name: String,
+        arg_names: Box<[String]>,
+        structure: AstNode,
+        end_idx: usize,
+        end_val: AstNode,
+        parse_ctx: &ParseContext,
+    ) -> PResult<Self> {
+        // verify arguments are valid
+        let validator = FunctionInitValidator {
+            parse_ctx,
+            arg_names: &arg_names,
+            func_name: &name,
+        };
+        validator.walk(&structure)?;
+
+        Ok(Self {
+            name,
+            ast: structure,
+            args: arg_names,
+            end_idx,
+            end_val,
+        })
+    }
+
+    pub fn build_tokens(
+        &self,
+        arg_values: Box<[AstNode]>,
+        parse_ctx: &ParseContext,
+    ) -> PResult<AstNode> {
+        if self.args.len() != arg_values.len() {
+            return diagnostic_builder!(
+                parse_ctx.input.clone(),
+                format!(
+                    "expected {} argument{}, got {}",
+                    self.args.len(),
+                    pluralize!(self.args.len()),
+                    arg_values.len()
+                )
+            );
+        }
+
+        println!("arg_val: {:?}", &arg_values[0]);
+        let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.normalize().to_string();
+        let mut def = false;
+        if rec_param.parse::<usize>().is_err() {
+            if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
+                return diagnostic_builder!(parse_ctx.input.clone(), format!("expected a natural number as the recursion parameter, found `{}`", rec_param));
+            }
+        }
+        if rec_param.parse::<usize>().map_or(true, |val| val <= self.end_idx) { // FIXME: is <= correct here?
+            def = true;
+        }
+
+        let mut arg_replacements = HashMap::new();
+        for val in arg_values.into_iter().enumerate().skip(if def {
+            1
+        } else {
+            0
+        }) {
+            let eval_walker = EvalWalker { ctx: parse_ctx };
+            arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
+        }
+
+        let mut walker = FunctionWalker {
+            parse_ctx,
+            arg_replacements,
+        };
+
+        let mut result = if def {
+            self.end_val.clone()
+        } else {
+            self.ast.clone()
+        };
+        walker.walk(&mut result)?;
         Ok(result)
     }
 }
@@ -971,4 +1173,11 @@ fn test_vars() {
         .normalize()
         .to_string();
     assert_eq!(result, "38");
+    let result = _lib::eval(String::from("k(2)"), &mut context)
+        .unwrap()
+        .0
+        .unwrap()
+        .normalize()
+        .to_string();
+    assert_eq!(result, "68");
 }

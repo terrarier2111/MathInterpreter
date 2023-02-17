@@ -1,10 +1,8 @@
-use crate::ast::{
-    AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode,
-};
+use crate::ast::{AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail, UnaryOpNode};
 use crate::ast_walker::AstWalker;
 use crate::diagnostic_builder;
 use crate::error::DiagnosticBuilder;
-use crate::parser::{Action, Function, PResult, ParseContext};
+use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
 use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind};
 use crate::span::Span;
 use std::hint::unreachable_unchecked;
@@ -16,6 +14,7 @@ pub(crate) fn eval(
     parse_ctx: &mut ParseContext,
     ans_mode: ANSMode,
     entry: AstNode,
+    tail: Option<RecFuncTail>,
 ) -> Result<Option<Number>, DiagnosticBuilder> {
         if entry.kind() != AstNodeKind::BinOp {
             let walker = EvalWalker { ctx: parse_ctx };
@@ -106,6 +105,7 @@ pub(crate) fn eval(
                             },
                         )?
                     }),
+                    AstNode::RecFuncDef(_) => panic!(),
                     AstNode::Lit(var) => Action::DefineVar(var.content.clone()),
                     AstNode::BinOp(_) => {
                         return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a binary operation");
@@ -155,8 +155,14 @@ pub(crate) fn eval(
             Ok(Some(result))
         }
         Action::DefineFunc(name, params) => {
-            let func = Function::new(name, params, entry, parse_ctx)?;
-            parse_ctx.register_func(func);
+            println!("{:?}", entry);
+            if let Some(tail) = tail {
+                let func = RecursiveFunction::new(name, params, entry, tail.idx, *tail.val, parse_ctx)?;
+                parse_ctx.register_rec_func(func);
+            } else {
+                let func = Function::new(name, params, entry, parse_ctx)?;
+                parse_ctx.register_func(func);
+            }
             Ok(None)
         }
         Action::DefineRecFunc(_, _, _) => unimplemented!(),
@@ -166,6 +172,11 @@ pub(crate) fn eval(
             walker.walk(&entry).map(|val| Some(val))
         }
     }
+}
+
+pub(crate) fn resolve_simple(parse_ctx: &ParseContext, node: &AstNode) -> PResult<Number> {
+    let walker = EvalWalker { ctx: parse_ctx };
+    walker.walk(node)
 }
 
 pub(crate) struct EvalWalker<'a> {
@@ -186,11 +197,11 @@ impl AstWalker<Number> for EvalWalker<'_> {
             } else {
                 diagnostic_builder!(
                     self.ctx.get_input().clone(),
-                    format!("there is no variable or constant named {}", node.content)
+                    format!("there is no variable, function or constant named {}", node.content)
                 )
             }
         } else {
-            let val = node.content.parse::<Number>().unwrap();
+            let val = node.content.parse::<Number>().expect(&format!("expected number, but found {}", &node.content));
             Ok(val)
         }
     }
@@ -201,6 +212,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
     }
 
     fn walk_maybe_func(&self, node: &MaybeFuncNode) -> PResult<Number> {
+        println!("try call func 1!");
         if let Some(result) = self.ctx.try_call_func(
             &node.name,
             node.param.as_ref().map_or_else(
@@ -209,7 +221,9 @@ impl AstWalker<Number> for EvalWalker<'_> {
             ),
         ) {
             let result = result?;
+            println!("tmp_ast: {:?}", result);
             self.walk(&result)
+            // fib(n)=fib(n-1)*fib(n-2) @2=1
         } else {
             let ast = if let Some(param) = &node.param {
                 AstNode::BinOp(BinOpNode {
@@ -217,7 +231,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
                     lhs: Box::new(AstNode::Lit(LiteralToken {
                         span: Span::NONE,
                         content: node.name.clone(),
-                        kind: LiteralKind::Number,
+                        kind: LiteralKind::CharSeq,
                         trailing_space: TrailingSpace::Yes,
                     })),
                     rhs: param.clone(),
@@ -226,7 +240,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 AstNode::Lit(LiteralToken {
                     span: Span::NONE,
                     content: node.name.clone(),
-                    kind: LiteralKind::Number,
+                    kind: LiteralKind::CharSeq,
                     trailing_space: TrailingSpace::Yes,
                 })
             };
@@ -235,6 +249,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
     }
 
     fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode) -> PResult<Number> {
+        println!("try call func 2!");
         if let Some(result) = self.ctx.try_call_func(&node.name, node.params.clone()) {
             let result = result?;
             self.walk(&result)

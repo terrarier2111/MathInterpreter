@@ -11,9 +11,7 @@ pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Num
             return ParseResult::new_err(diagnostic_builder);
         }
     };
-    println!("lexed stuff!");
     let mut parser = Parser::new(tokens, &mut eval_ctx.parse_ctx, eval_ctx.config.ans_mode);
-    println!("starting parsing!");
     let parsed = parser.parse(eval_ctx.config.mode);
     parsed
 }

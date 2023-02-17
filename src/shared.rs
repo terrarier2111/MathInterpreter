@@ -14,7 +14,7 @@ use std::ops::Neg;
 pub enum Token {
     OpenParen(FixedTokenSpan),
     ClosedParen(FixedTokenSpan),
-    VertBar(FixedTokenSpan),
+    At(FixedTokenSpan),
     Comma(FixedTokenSpan),
     UnaryOp(FixedTokenSpan, UnaryOpKind),
     BinOp(FixedTokenSpan, BinOpKind),
@@ -29,7 +29,7 @@ impl Token {
         match self {
             Token::OpenParen(..) => TokenKind::OpenParen,
             Token::ClosedParen(..) => TokenKind::ClosedParen,
-            Token::VertBar(..) => TokenKind::VertBar,
+            Token::At(..) => TokenKind::At,
             Token::Comma(..) => TokenKind::Comma,
             Token::BinOp(..) => TokenKind::BinOp,
             Token::UnaryOp(..) => TokenKind::UnaryOp,
@@ -44,7 +44,7 @@ impl Token {
         match self {
             Token::OpenParen(span) => span.to_unfixed_span(),
             Token::ClosedParen(span) => span.to_unfixed_span(),
-            Token::VertBar(span) => span.to_unfixed_span(),
+            Token::At(span) => span.to_unfixed_span(),
             Token::Comma(span) => span.to_unfixed_span(),
             Token::BinOp(span, _) => span.to_unfixed_span(),
             Token::UnaryOp(span, _) => span.to_unfixed_span(),
@@ -59,7 +59,7 @@ impl Token {
         match self {
             Token::OpenParen(..) => ImplicitlyMultiply::Right,
             Token::ClosedParen(..) => ImplicitlyMultiply::Left,
-            Token::VertBar(..) => ImplicitlyMultiply::Never,
+            Token::At(..) => ImplicitlyMultiply::Never,
             Token::Comma(..) => ImplicitlyMultiply::Never,
             Token::BinOp(..) => ImplicitlyMultiply::Never,
             Token::UnaryOp(_, op) => {
@@ -80,7 +80,7 @@ impl Token {
         match self {
             Token::OpenParen(_) => String::from('('),
             Token::ClosedParen(_) => String::from(')'),
-            Token::VertBar(_) => String::from('|'),
+            Token::At(_) => String::from('|'),
             Token::Comma(_) => String::from(','),
             Token::BinOp(_, op) => String::from(op.to_char()),
             Token::UnaryOp(_, op) => String::from(op.to_char()),
@@ -116,8 +116,8 @@ pub struct LiteralToken {
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum TrailingSpace {
-    No,
-    Yes,
+    No = 0,
+    Yes = 1,
     Maybe,
 }
 
@@ -135,7 +135,7 @@ impl From<bool> for TrailingSpace {
 pub enum TokenKind {
     OpenParen,
     ClosedParen,
-    VertBar,
+    At,
     Comma,
     BinOp,
     UnaryOp,

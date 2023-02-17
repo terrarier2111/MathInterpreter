@@ -32,7 +32,18 @@ fn main() {
         let input = utils::input("Please insert what is to be evaluated: ".to_string()).unwrap();
         let result = _lib::eval(input, &mut context);
         match result.0 {
-            Ok(val) => println!("Result: {:?}", val),
+            Ok(val) => {
+                if let Some(num) = val.0 {
+                    println!("Result: {:?}", num);
+                    if let Some(err) = val.1 {
+                        println!("{:?}", err);
+                    }
+                } else if let Some(err) = val.1 {
+                    println!("{:?}", err);
+                } else {
+                    println!("Ok!");
+                }
+            },
             Err(err) => println!("Encountered an error:\n{}", err),
         }
     }

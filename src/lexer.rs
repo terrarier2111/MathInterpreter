@@ -82,11 +82,11 @@ impl Lexer {
                         UnaryOpKind::Factorial,
                     ));
                 }
-                '|' => {
+                '@' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap(),
-                            Token::VertBar(..)
+                            Token::At(..)
                                 | Token::BinOp(_, BinOpKind::Eq)
                                 | Token::UnaryOp(..)
                         )
@@ -97,13 +97,13 @@ impl Lexer {
                             cursor
                         );
                     }
-                    curr_token = Some(Token::VertBar(FixedTokenSpan::new(cursor)));
+                    curr_token = Some(Token::At(FixedTokenSpan::new(cursor)));
                 }
                 '=' => {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap(),
-                            Token::VertBar(..)
+                            Token::At(..)
                                 | Token::BinOp(_, BinOpKind::Eq)
                                 | Token::UnaryOp(..)
                         )
@@ -118,7 +118,7 @@ impl Lexer {
                 }
                 '(' => {
                     if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::VertBar)
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::At)
                     {
                         return diagnostic_builder!(
                             input.clone(),
@@ -131,7 +131,7 @@ impl Lexer {
                 ')' => {
                     let last = tokens.last().unwrap();
                     if !tokens.is_empty()
-                        && matches!(last, Token::VertBar(..) | Token::BinOp(_, BinOpKind::Eq))
+                        && matches!(last, Token::At(..) | Token::BinOp(_, BinOpKind::Eq))
                     {
                         return diagnostic_builder!(
                             input.clone(),
@@ -146,7 +146,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp
+                            TokenKind::At | TokenKind::BinOp
                         )
                     {
                         return diagnostic_builder!(
@@ -161,7 +161,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -176,7 +176,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -191,7 +191,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -206,7 +206,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -235,7 +235,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::VertBar | TokenKind::UnaryOp
+                            TokenKind::At | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(

@@ -19,10 +19,11 @@ pub trait AstWalker<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),
+            AstNode::RecFuncDef(_) => panic!(),
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
-            AstNode::PartialBinOp(_) => diagnostic_builder!(self.get_input().clone(), "weird stuff"), // FIXME: add span by using `AstEntry`!
+            AstNode::PartialBinOp(_) => diagnostic_builder!(self.get_input().clone(), "found a `PartialBinOp` midst the Ast."), // FIXME: add span by using `AstEntry`!
         }
     }
 
@@ -44,6 +45,7 @@ pub trait AstWalkerMut<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),
+            AstNode::RecFuncDef(_) => panic!(),
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
@@ -67,6 +69,7 @@ pub trait AstWalkerConsuming<T> {
         match entry {
             AstNode::FuncCallOrFuncDef(node) => self.walk_func_call_or_func_def(node),
             AstNode::MaybeFunc(node) => self.walk_maybe_func(node),
+            AstNode::RecFuncDef(_) => panic!(),
             AstNode::Lit(node) => self.walk_lit(node),
             AstNode::BinOp(node) => self.walk_binop(node),
             AstNode::UnaryOp(node) => self.walk_unary_op(node),
