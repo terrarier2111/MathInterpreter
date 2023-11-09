@@ -39,8 +39,7 @@ impl Lexer {
             }
             (buffer, new_cursor)
         }
-
-        while input.len() > cursor {
+        while chars.len() > cursor {
             let mut curr_token = None;
             let curr = chars[cursor];
             match curr {
@@ -260,6 +259,9 @@ impl Lexer {
                             BinOpKind::Subtract,
                         ));
                     }
+                }
+                '²' => {
+                    todo!();
                 }
                 _ => {
                     /* if x.is_numeric() || x == '.' || x.is_alphabetic() || x == '_' || x == '#' {
