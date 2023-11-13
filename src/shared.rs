@@ -185,7 +185,10 @@ pub enum UnaryOpKind {
     Pos,       // `+`
     Neg,       // `-`
     Factorial, // `!`
+    Exp(usize),
 }
+
+const EXPONENTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 
 impl UnaryOpKind {
     pub fn to_char(&self) -> char {
@@ -193,6 +196,7 @@ impl UnaryOpKind {
             UnaryOpKind::Pos => '+',
             UnaryOpKind::Neg => '-',
             UnaryOpKind::Factorial => '!',
+            UnaryOpKind::Exp(exp) => EXPONENTS[*exp],
         }
     }
 
@@ -201,6 +205,7 @@ impl UnaryOpKind {
             UnaryOpKind::Pos => RHS,
             UnaryOpKind::Neg => RHS,
             UnaryOpKind::Factorial => LHS,
+            UnaryOpKind::Exp(_) => LHS,
         }
     }
 
@@ -232,6 +237,7 @@ impl UnaryOpKind {
                     }
                 }
             }
+            UnaryOpKind::Exp(exp) => Ok(arg * Decimal::from_usize(*exp).unwrap()),
         }
     }
 }

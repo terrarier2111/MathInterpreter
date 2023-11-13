@@ -260,75 +260,31 @@ impl Lexer {
                         ));
                     }
                 }
+                '¹' => {
+                    curr_token = Some(Token::UnaryOp(
+                        FixedTokenSpan::new(cursor),
+                        UnaryOpKind::Exp(1),
+                    ));
+                }
                 '²' => {
-                    todo!();
+                    curr_token = Some(Token::UnaryOp(
+                        FixedTokenSpan::new(cursor),
+                        UnaryOpKind::Exp(2),
+                    ));
+                }
+                '³' => {
+                    curr_token = Some(Token::UnaryOp(
+                        FixedTokenSpan::new(cursor),
+                        UnaryOpKind::Exp(3),
+                    ));
+                }
+                '⁰' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹' => {
+                    curr_token = Some(Token::UnaryOp(
+                        FixedTokenSpan::new(cursor),
+                        UnaryOpKind::Exp(curr as usize - '⁰' as usize),
+                    ));
                 }
                 _ => {
-                    /* if x.is_numeric() || x == '.' || x.is_alphabetic() || x == '_' || x == '#' {
-                        let alphabetic = x.is_alphabetic() || x == '_' || x == '#';
-                        match &mut token_type {
-                            None => {
-                                // This handles the case in which the last token **is not** part of the current token's literal
-                                if x == '.' {
-                                    return diagnostic_builder!(
-                                        input.clone(),
-                                        "`.` at wrong location",
-                                        i
-                                    );
-                                }
-                                let sign = if !tokens.is_empty() {
-                                    if let Token::Sign(idx, kind) = tokens.last().unwrap().clone() {
-                                        tokens.pop();
-                                        (idx, kind)
-                                    } else {
-                                        (i, SignKind::Default)
-                                    }
-                                } else {
-                                    (i, SignKind::Default)
-                                };
-                                token_type = Some(Token::Literal(LiteralToken {
-                                    span: Span::single_token(sign.0),
-                                    content: String::from(x),
-                                    sign: sign.1,
-                                    kind: if alphabetic {
-                                        LiteralKind::CharSeq
-                                    } else {
-                                        LiteralKind::Number
-                                    },
-                                    trailing_space: TrailingSpace::from(
-                                        chars.get(i + 1).map_or(false, |next| *next == ' '),
-                                    ),
-                                }));
-                            }
-                            Some(token) => {
-                                // This handles the case in which the last token **is** part of the current token's literal
-                                match token {
-                                    Token::Literal(lit_tok) => {
-                                        if alphabetic && lit_tok.kind != LiteralKind::CharSeq {
-                                            lit_tok.kind = LiteralKind::CharSeq;
-                                        }
-                                        // Check for previous dots
-                                        if lit_tok.kind == LiteralKind::Number
-                                            && x == '.'
-                                            && lit_tok.content.contains('.')
-                                        {
-                                            return diagnostic_builder!(
-                                                input.clone(),
-                                                "`.` at wrong location",
-                                                i
-                                            );
-                                        }
-                                        lit_tok.content.push(x);
-                                        lit_tok.span.expand_hi();
-                                    }
-                                    _ => unreachable!(),
-                                }
-                            }
-                        }
-                    } else {
-                        tokens.push(Token::Other(i, x));
-                    }
-                    None*/
                     curr_token = Some(Token::Other(FixedTokenSpan::new(cursor), curr));
                 }
             }
