@@ -1,4 +1,4 @@
-use crate::diagnostic_builder;
+use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::shared::BinOpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::Token::EOF;
@@ -58,7 +58,7 @@ impl Lexer {
                         ),
                     }));
                 }
-                (('a'..='z') | ('A'..='Z') | '_' | '#') => {
+                ('a'..='z') | ('A'..='Z') | '_' | '#' => {
                     // FIXME: add checks like we do them everywhere else!
                     let (buffer, new_cursor) = read_into_buffer(&chars, cursor, |x| {
                         matches!(x, ('a'..='z') | ('A'..='Z') | ('0'..='9') | '_' | '#')
@@ -155,6 +155,28 @@ impl Lexer {
                         );
                     }
                     curr_token = Some(Token::Comma(FixedTokenSpan::new(cursor)));
+                }
+                '.' => {
+                    if !tokens.is_empty() {
+                        if let Token::Literal(LiteralToken { content, trailing_space, span, .. }) = tokens.last().unwrap() {
+                            if ('0'..'9').contains(&content.chars().last().unwrap()) && *trailing_space != TrailingSpace::Yes {
+                                return diagnostic_builder_spanned!(
+                                    input.clone(),
+                                    format!("`{}{}` is ambiguous", content, curr),
+                                    {
+                                        let mut new_span = span.clone();
+                                        new_span.expand_hi();
+                                        new_span
+                                    }
+                                );
+                            }
+                        }
+                    }
+                    return diagnostic_builder!(
+                        input.clone(),
+                        format!("`{}` at wrong location", curr),
+                        cursor
+                    );
                 }
                 '*' | '×' => {
                     if !tokens.is_empty()

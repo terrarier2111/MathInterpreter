@@ -68,12 +68,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 self.advance();
-                match idx {
+                match &mut idx {
                     None => {
                         idx = Some(1);
                     }
-                    Some(mut idx) => {
-                        idx += 1;
+                    Some(idx) => {
+                        *idx += 1;
                     }
                 }
             }
@@ -101,6 +101,7 @@ impl<'a> Parser<'a> {
                     ImplicitlyMultiply::Always
                 }
             } else {
+                println!("token: {}", self.curr);
                 let ret = self.curr.implicitly_multiply_left();
                 self.advance();
                 ret
