@@ -101,7 +101,6 @@ impl<'a> Parser<'a> {
                     ImplicitlyMultiply::Always
                 }
             } else {
-                println!("token: {}", self.curr);
                 let ret = self.curr.implicitly_multiply_left();
                 self.advance();
                 ret
@@ -744,11 +743,11 @@ struct FunctionInitValidator<'a> {
 }
 
 impl LitWalker for FunctionInitValidator<'_> {
+    // FIXME: ensure that functions that are being used actually exist!
     fn walk_lit(&self, lit_tok: &LiteralToken) -> Result<(), DiagnosticBuilder> {
         if lit_tok.kind == LiteralKind::CharSeq
             && !self.arg_names.contains(&lit_tok.content)
             && !self.parse_ctx.exists_const(&lit_tok.content)
-            && (!self.parse_ctx.exists_fn(&lit_tok.content))
         {
             return diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
