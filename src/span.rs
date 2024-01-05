@@ -32,24 +32,38 @@ impl Span {
         Self { start, end }
     }
 
-    pub fn shrink_hi(&mut self) -> Result<(), ShrinkHiError> {
+    #[must_use]
+    pub fn shrink_hi(mut self) -> Result<Self, ShrinkHiError> {
         if self.start == self.end {
             return Err(ShrinkHiError(self.start));
         }
-        self.end = self.end - 1;
-        Ok(())
+        Ok(Self { start: self.start, end: self.end - 1 })
     }
 
-    pub fn shrink_lo(&mut self) -> Result<(), ShrinkLoError> {
+    #[must_use]
+    pub fn shrink_lo(mut self) -> Result<Self, ShrinkLoError> {
         if self.start == self.end {
             return Err(ShrinkLoError(self.end));
         }
-        self.end = self.end - 1;
-        Ok(())
+        Ok(Self { start: self.start + 1, end: self.end })
     }
 
-    pub fn expand_hi(&mut self) {
-        self.end += 1;
+    #[must_use]
+    pub fn expand_hi(mut self) -> Self {
+        Self { start: self.start, end: self.end + 1 }
+    }
+
+    #[must_use]
+    pub fn expand_lo(mut self) -> Result<Self, ExpandLoError> {
+        if self.start == 0 {
+            return Err(ExpandLoError);
+        }
+        Ok(Self { start: self.start - 1, end: self.end })
+    }
+
+    #[must_use]
+    pub fn merge_with(mut self, other: Span) -> Self {
+        Self { start: self.start.min(other.start), end: self.end.max(other.end) }
     }
 
     pub fn is_none(&self) -> bool {
@@ -119,9 +133,10 @@ pub trait GenericSpan {
     fn end(&self) -> usize;
 }
 
+#[derive(Debug)]
 pub struct ShrinkHiError(usize);
 
-impl Debug for ShrinkHiError {
+impl Display for ShrinkHiError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("tried to shrink a span starting at ")?;
         let start = self.0.to_string();
@@ -131,18 +146,12 @@ impl Debug for ShrinkHiError {
     }
 }
 
-impl Display for ShrinkHiError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let dbg = format!("{:?}", self);
-        f.write_str(dbg.as_str())
-    }
-}
-
 impl Error for ShrinkHiError {}
 
+#[derive(Debug)]
 pub struct ShrinkLoError(usize);
 
-impl Debug for ShrinkLoError {
+impl Display for ShrinkLoError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("tried to shrink a span ending at ")?;
         let end = self.0.to_string();
@@ -152,11 +161,15 @@ impl Debug for ShrinkLoError {
     }
 }
 
-impl Display for ShrinkLoError {
+impl Error for ShrinkLoError {}
+
+#[derive(Debug)]
+pub struct ExpandLoError;
+
+impl Display for ExpandLoError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let dbg = format!("{:?}", self);
-        f.write_str(dbg.as_str())
+        f.write_str("tried to expand a span below 0")
     }
 }
 
-impl Error for ShrinkLoError {}
+impl Error for ExpandLoError {}

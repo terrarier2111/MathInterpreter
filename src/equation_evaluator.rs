@@ -1,6 +1,6 @@
-use crate::ast::{AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail, UnaryOpNode};
+use crate::ast::{AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail, UnaryOpNode, AstEntry};
 use crate::ast_walker::AstWalker;
-use crate::diagnostic_builder;
+use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
 use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind};
@@ -13,17 +13,17 @@ use crate::_lib::ANSMode;
 pub(crate) fn eval(
     parse_ctx: &mut ParseContext,
     ans_mode: ANSMode,
-    entry: AstNode,
+    entry: AstEntry,
     tail: Option<RecFuncTail>,
 ) -> Result<Option<Number>, DiagnosticBuilder> {
-        if entry.kind() != AstNodeKind::BinOp {
+        if entry.node.kind() != AstNodeKind::BinOp {
             let walker = EvalWalker { ctx: parse_ctx };
-            let ret = if let AstNode::PartialBinOp(node) = entry {
+            let ret = if let AstNode::PartialBinOp(node) = entry.node {
                 if node.op == BinOpKind::Eq {
-                    return diagnostic_builder!(parse_ctx.get_input().clone(), "can't set a previous result equal to some new one - ANS doesn't work with `Eq`.");
+                    return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "can't set a previous result equal to some new one - ANS doesn't work with `Eq`.", entry.span);
                 }
                 if ans_mode == ANSMode::Never {
-                    return diagnostic_builder!(parse_ctx.get_input().clone(), "ANS is disabled!"); // FIXME: improve this!
+                    return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "ANS is disabled!", entry.span); // FIXME: improve this!
                 }
                 if let Some(last) = parse_ctx.get_last() {
                     match node.op {
@@ -44,10 +44,10 @@ pub(crate) fn eval(
                         }
                         ret
                     } else {
-                        return diagnostic_builder!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.");
+                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.", entry.span);
                     }
                 }
-            } else if let AstNode::UnaryOp(node) = &entry {
+            } else if let AstNode::UnaryOp(node) = &entry.node {
                 if ans_mode == ANSMode::Always && (node.op == UnaryOpKind::Neg || node.op == UnaryOpKind::Pos) {
                     if let Some(last) = parse_ctx.get_last() {
                         if node.op == UnaryOpKind::Neg {
@@ -56,7 +56,7 @@ pub(crate) fn eval(
                             walker.walk(&*node.val).map(|x| last.add(x))
                         }
                     } else {
-                        return diagnostic_builder!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.");
+                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.", entry.span);
                     }
                 } else {
                     walker.walk(&entry)
@@ -69,21 +69,22 @@ pub(crate) fn eval(
         }
 
     // FIXME: get rid of all that cloning by consuming entry
-    let (entry, action) = if let AstNode::BinOp(node) = entry {
+    let (entry, action) = if let AstNode::BinOp(node) = entry.node {
         if node.op == BinOpKind::Eq {
             (
                 *node.rhs,
-                match *node.lhs {
+                match node.lhs.node {
                     AstNode::FuncCallOrFuncDef(func) => {
                         Action::DefineFunc(func.name, {
                             let mut result = Vec::with_capacity(func.params.len());
                             for param in func.params.into_iter() {
-                                if let AstNode::Lit(lit) = param {
+                                if let AstNode::Lit(lit) = &param.node {
                                     result.push(lit.content.clone()); // FIXME: can we get rid of this clone?
                                 } else {
-                                    return diagnostic_builder!(
+                                    return diagnostic_builder_spanned!(
                                         parse_ctx.get_input().clone(),
-                                        "expected a parameter name, but got an expression"
+                                        "expected a parameter name, but got an expression",
+                                        param.span
                                     );
                                 }
                             }
@@ -94,12 +95,13 @@ pub(crate) fn eval(
                         func.param.map_or_else(
                             || Ok(Box::new([]) as Box<[String]>),
                             |param| {
-                                if let AstNode::Lit(lit) = *param {
+                                if let AstNode::Lit(lit) = param.node {
                                     Ok(Box::new([lit.content]))
                                 } else {
-                                    diagnostic_builder!(
+                                    diagnostic_builder_spanned!(
                                         parse_ctx.get_input().clone(),
-                                        "expected a parameter name, but got an expression"
+                                        "expected a parameter name, but got an expression",
+                                        param.span
                                     )
                                 }
                             },
@@ -134,7 +136,10 @@ pub(crate) fn eval(
                 },
             )
         } else {
-            (AstNode::BinOp(node), Action::Eval(None))
+            (AstEntry {
+                span: node.lhs.span.merge_with(node.rhs.span),
+                node: AstNode::BinOp(node),
+            }, Action::Eval(None))
         }
     } else {
         // SAFETY: above we just checked if the current token kind is BinOp
@@ -155,7 +160,7 @@ pub(crate) fn eval(
         }
         Action::DefineFunc(name, params) => {
             if let Some(tail) = tail {
-                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val, parse_ctx)?;
+                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val.node, parse_ctx)?;
                 parse_ctx.register_rec_func(func);
             } else {
                 let func = Function::new(name, params, entry, parse_ctx)?;
@@ -172,7 +177,7 @@ pub(crate) fn eval(
     }
 }
 
-pub(crate) fn resolve_simple(parse_ctx: &ParseContext, node: &AstNode) -> PResult<Number> {
+pub(crate) fn resolve_simple(parse_ctx: &ParseContext, node: &AstEntry) -> PResult<Number> {
     let walker = EvalWalker { ctx: parse_ctx };
     walker.walk(node)
 }
@@ -182,20 +187,21 @@ pub(crate) struct EvalWalker<'a> {
 }
 
 impl AstWalker<Number> for EvalWalker<'_> {
-    fn walk_binop(&self, node: &BinOpNode) -> PResult<Number> {
+    fn walk_binop(&self, node: &BinOpNode, span: Span) -> PResult<Number> {
         let lhs = self.walk(&node.lhs)?;
         let rhs = self.walk(&node.rhs)?;
         Ok(node.op.eval((Some(lhs), Some(rhs))))
     }
 
-    fn walk_lit(&self, node: &LiteralToken) -> PResult<Number> {
+    fn walk_lit(&self, node: &LiteralToken, span: Span) -> PResult<Number> {
         if node.kind == LiteralKind::CharSeq {
             if let Some(val) = self.ctx.lookup_var(&node.content) {
                 Ok(val)
             } else {
-                diagnostic_builder!(
+                diagnostic_builder_spanned!(
                     self.ctx.get_input().clone(),
-                    format!("there is no variable, function or constant named {}", node.content)
+                    format!("there is no variable, function or constant named {}", node.content),
+                    span
                 )
             }
         } else {
@@ -204,18 +210,19 @@ impl AstWalker<Number> for EvalWalker<'_> {
         }
     }
 
-    fn walk_unary_op(&self, node: &UnaryOpNode) -> PResult<Number> {
+    fn walk_unary_op(&self, node: &UnaryOpNode, span: Span) -> PResult<Number> {
         let val = self.walk(&*node.val)?;
         node.op.eval(val, self.ctx)
     }
 
-    fn walk_maybe_func(&self, node: &MaybeFuncNode) -> PResult<Number> {
+    fn walk_maybe_func(&self, node: &MaybeFuncNode, span: Span) -> PResult<Number> {
         if let Some(result) = self.ctx.try_call_func(
             &node.name,
             node.param.as_ref().map_or_else(
-                || Box::new([]) as Box<[AstNode]>,
+                || Box::new([]) as Box<[AstEntry]>,
                 |param| Box::new([*param.clone()]),
             ),
+            span,
         ) {
             let result = result?;
             self.walk(&result)
@@ -223,12 +230,15 @@ impl AstWalker<Number> for EvalWalker<'_> {
             let ast = if let Some(param) = &node.param {
                 AstNode::BinOp(BinOpNode {
                     op: BinOpKind::Multiply,
-                    lhs: Box::new(AstNode::Lit(LiteralToken {
-                        span: Span::NONE,
-                        content: node.name.clone(),
-                        kind: LiteralKind::CharSeq,
-                        trailing_space: TrailingSpace::Yes,
-                    })),
+                    lhs: Box::new(AstEntry {
+                        span: Span::NONE, // FIXME: support name spans!
+                        node: AstNode::Lit(LiteralToken {
+                            span: Span::NONE, // FIXME: support name spans!
+                            content: node.name.clone(),
+                            kind: LiteralKind::CharSeq,
+                            trailing_space: TrailingSpace::Yes,
+                        }),
+                    }),
                     rhs: param.clone(),
                 })
             } else {
@@ -239,18 +249,23 @@ impl AstWalker<Number> for EvalWalker<'_> {
                     trailing_space: TrailingSpace::Yes,
                 })
             };
+            let ast = AstEntry {
+                span,
+                node: ast,
+            };
             self.walk(&ast)
         }
     }
 
-    fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode) -> PResult<Number> {
-        if let Some(result) = self.ctx.try_call_func(&node.name, node.params.clone()) {
+    fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode, span: Span) -> PResult<Number> {
+        if let Some(result) = self.ctx.try_call_func(&node.name, node.params.clone(), span) {
             let result = result?;
             self.walk(&result)
         } else {
-            diagnostic_builder!(
+            diagnostic_builder_spanned!(
                 self.ctx.get_input().clone(),
-                format!("there is no function named {}", node.name)
+                format!("there is no function named {}", node.name),
+                span
             )
         }
     }

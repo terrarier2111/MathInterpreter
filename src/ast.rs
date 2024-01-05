@@ -44,7 +44,7 @@ pub enum AstNodeKind {
 #[derive(Clone, Debug)]
 pub struct FuncCallOrFuncDefNode {
     pub(crate) name: String,
-    pub(crate) params: Box<[AstNode]>, // params consisting of their values
+    pub(crate) params: Box<[AstEntry]>, // params consisting of their values
 }
 
 // This node could either be a function call/def or just a var
@@ -52,30 +52,30 @@ pub struct FuncCallOrFuncDefNode {
 #[derive(Clone, Debug)]
 pub struct MaybeFuncNode {
     pub(crate) name: String,
-    pub(crate) param: Option<Box<AstNode>>, // param consisting of its value
+    pub(crate) param: Option<Box<AstEntry>>, // param consisting of its value
 }
 
 #[derive(Clone, Debug)]
 pub struct RecFuncTail {
     pub(crate) idx: usize,
-    pub(crate) val: AstNode,
+    pub(crate) val: AstEntry,
 }
 
 #[derive(Clone, Debug)]
 pub struct BinOpNode {
     pub(crate) op: BinOpKind,
-    pub(crate) lhs: Box<AstNode>,
-    pub(crate) rhs: Box<AstNode>,
+    pub(crate) lhs: Box<AstEntry>,
+    pub(crate) rhs: Box<AstEntry>,
 }
 
 #[derive(Clone, Debug)]
 pub struct UnaryOpNode {
     pub(crate) op: UnaryOpKind,
-    pub(crate) val: Box<AstNode>,
+    pub(crate) val: Box<AstEntry>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PartialBinOpNode {
     pub(crate) op: BinOpKind,
-    pub(crate) rhs: Box<AstNode>,
+    pub(crate) rhs: Box<AstEntry>,
 }

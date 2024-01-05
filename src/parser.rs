@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode};
+use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode, AstEntry};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
 use crate::equation_evaluator::{EvalWalker, resolve_simple};
 use crate::equation_simplifier::simplify;
@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
         while !self.eat(TokenKind::EOF) {
             let curr_token_mult = if let Some(lit) = self.parse_lit() {
                 if self.parse_ctx.exists_fn(&lit.content)
-                    || self.parse_ctx.exists_builtin_func(&lit.content) || func.as_ref().map(|node| match node {
+                    || self.parse_ctx.exists_builtin_func(&lit.content) || func.as_ref().map(|node| match &node.node {
                     AstNode::FuncCallOrFuncDef(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
                     AstNode::MaybeFunc(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
                     // AstNode::RecFuncDef(_) => {}
@@ -177,7 +177,7 @@ impl<'a> Parser<'a> {
         ParseResult(Ok(((), None)))
     }
 
-    fn try_parse_function(&mut self) -> PResult<Option<AstNode>> {
+    fn try_parse_function(&mut self) -> PResult<Option<AstEntry>> {
         if let Some(lit) = self.parse_lit() {
             if lit.trailing_space != TrailingSpace::Yes && self.eat(TokenKind::OpenParen) {
                 let mut params = vec![];
@@ -200,15 +200,22 @@ impl<'a> Parser<'a> {
                 }
 
                 if params.len() > 1 {
-                    Ok(Some(AstNode::FuncCallOrFuncDef(FuncCallOrFuncDefNode {
-                        name: lit.content,
-                        params: params.into_boxed_slice(),
-                    })))
+                    Ok(Some(AstEntry {
+                        span: Span::multi_token(lit.span.start, params.last().map(|p| p.span.end + 1).unwrap_or(lit.span.end + 2)),
+                        node: AstNode::FuncCallOrFuncDef(FuncCallOrFuncDefNode {
+                            name: lit.content,
+                            params: params.into_boxed_slice(),
+                        }),
+                    }))
                 } else {
-                    Ok(Some(AstNode::MaybeFunc(MaybeFuncNode {
-                        name: lit.content,
-                        param: params.pop().map(|x| Box::new(x)),
-                    })))
+                    // this may still be an implicit multiplication
+                    Ok(Some(AstEntry {
+                        span: Span::multi_token(lit.span.start, params.last().map(|p| p.span.end + 1).unwrap_or(lit.span.end + 2)),
+                        node: AstNode::MaybeFunc(MaybeFuncNode {
+                            name: lit.content,
+                            param: params.pop().map(|x| Box::new(x)),
+                        }),
+                    }))
                 }
             } else {
                 self.go_back();
@@ -260,16 +267,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expr(&mut self) -> PResult<AstNode> {
+    fn parse_expr(&mut self) -> PResult<AstEntry> {
         self.parse_binop()
     }
 
-    fn parse_binop(&mut self) -> PResult<AstNode> {
+    fn parse_binop(&mut self) -> PResult<AstEntry> {
         let lhs = self.parse_primary()?;
         self.parse_bin_op_rhs(0, lhs)
     }
 
-    fn parse_bin_op_rhs(&mut self, prec: u8, mut lhs: AstNode) -> PResult<AstNode> {
+    fn parse_bin_op_rhs(&mut self, prec: u8, mut lhs: AstEntry) -> PResult<AstEntry> {
         loop {
             let bin_op = if let Token::BinOp(_, bin_op) = &self.curr {
                 Some(*bin_op)
@@ -301,11 +308,14 @@ impl<'a> Parser<'a> {
 
             match next_bin_op {
                 None => {
-                    return Ok(AstNode::BinOp(BinOpNode {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs.take().unwrap()),
-                        op: bin_op,
-                    }));
+                    return Ok(AstEntry {
+                        span: lhs.span.merge_with(rhs.as_ref().unwrap().span),
+                        node: AstNode::BinOp(BinOpNode {
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs.take().unwrap()),
+                            op: bin_op,
+                        }),
+                    });
                 }
                 Some(next_bin_op) => {
                     if bin_op.precedence() < next_bin_op.precedence() {
@@ -313,17 +323,20 @@ impl<'a> Parser<'a> {
                             self.parse_bin_op_rhs(bin_op.precedence() + 1, rhs).unwrap()
                         });
                     }
-                    lhs = AstNode::BinOp(BinOpNode {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs.take().unwrap()),
-                        op: bin_op,
-                    });
+                    lhs = AstEntry {
+                        span: lhs.span.merge_with(rhs.as_ref().unwrap().span),
+                        node: AstNode::BinOp(BinOpNode {
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs.take().unwrap()),
+                            op: bin_op,
+                        }),
+                    };
                 }
             }
         }
     }
 
-    fn parse_paren_expr(&mut self) -> PResult<AstNode> {
+    fn parse_paren_expr(&mut self) -> PResult<AstEntry> {
         if !self.eat(TokenKind::OpenParen) {
             return diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
@@ -344,7 +357,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> PResult<AstNode> {
+    fn parse_primary(&mut self) -> PResult<AstEntry> {
         match &self.curr {
             Token::OpenParen(_) => {
                 let lhs = self.parse_paren_expr()?;
@@ -354,7 +367,11 @@ impl<'a> Parser<'a> {
                 let lhs = if let Some(func) = self.try_parse_function()? {
                     func
                 } else {
-                    AstNode::Lit(self.parse_lit().unwrap())
+                    let lit = self.parse_lit().unwrap();
+                    AstEntry {
+                        span: lit.span,
+                        node: AstNode::Lit(lit),
+                    }
                 };
                 self.try_parse_unary_arg_lhs(lhs)
             }
@@ -372,10 +389,14 @@ impl<'a> Parser<'a> {
             Token::BinOp(_, op) => {
                 let op = *op;
                 self.advance();
-                Ok(AstNode::PartialBinOp(PartialBinOpNode {
-                    op,
-                    rhs: Box::new(self.parse_primary()?),
-                }))
+                let rhs = Box::new(self.parse_primary()?);
+                Ok(AstEntry {
+                    span: rhs.span.expand_lo().unwrap(),
+                    node: AstNode::PartialBinOp(PartialBinOpNode {
+                        op,
+                        rhs,
+                    }),
+                })
             }
             _ => diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
@@ -389,29 +410,36 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_unary_arg_rhs(&mut self) -> PResult<AstNode> {
+    fn parse_unary_arg_rhs(&mut self) -> PResult<AstEntry> {
         if let Token::UnaryOp(_, op) = &self.curr {
             let op = *op;
             self.advance();
             let rhs = self.parse_primary()?;
-            Ok(AstNode::UnaryOp(UnaryOpNode {
-                op,
-                val: Box::new(rhs),
-            }))
+            Ok(AstEntry {
+                span: rhs.span.expand_lo().unwrap(),
+                node: AstNode::UnaryOp(UnaryOpNode {
+                    op,
+                    val: Box::new(rhs),
+                }),
+            })
         } else {
             unreachable!()
         }
     }
 
-    fn try_parse_unary_arg_lhs(&mut self, lhs: AstNode) -> PResult<AstNode> {
+    fn try_parse_unary_arg_lhs(&mut self, lhs: AstEntry) -> PResult<AstEntry> {
         if let Token::UnaryOp(_, op) = &self.curr {
             let op = *op;
             if op.arg_position() == ArgPosition::LHS {
                 self.advance();
-                return Ok(AstNode::UnaryOp(UnaryOpNode {
-                    op,
-                    val: Box::new(lhs),
-                }));
+
+                return Ok(AstEntry {
+                    span: lhs.span.expand_hi(),
+                    node: AstNode::UnaryOp(UnaryOpNode {
+                        op,
+                        val: Box::new(lhs),
+                    }),
+                });
             }
         }
         Ok(lhs)
@@ -616,28 +644,31 @@ impl ParseContext {
         self.funcs.contains_key(&*name) || self.rec_funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
     }
 
-    pub fn try_call_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<AstNode>> {
+    pub fn try_call_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<AstEntry>> {
         let name = name.to_lowercase();
         let func = self.funcs.get(&*name);
         match func {
             None => {
                 if self.rec_funcs.contains_key(&name) {
-                    self.call_rec_func(&name, args)
+                    self.call_rec_func(&name, args, span)
                 } else {
                     let result = self.call_builtin_func(&name, args);
                     result.map(|pr| {
                         pr.map(|num| {
-                            AstNode::Lit(LiteralToken {
-                                span: Span::NONE,
-                                content: num.to_string(),
-                                kind: LiteralKind::Number,
-                                trailing_space: TrailingSpace::Maybe,
-                            })
+                            AstEntry {
+                                span,
+                                node: AstNode::Lit(LiteralToken {
+                                    span,
+                                    content: num.to_string(),
+                                    kind: LiteralKind::Number,
+                                    trailing_space: TrailingSpace::Maybe,
+                                }),
+                            }
                         })
                     })
                 }
             }
-            Some(func) => Some(func.build_tokens(args, self)),
+            Some(func) => Some(func.build_tokens(args, self, span)),
         }
     }
 
@@ -646,7 +677,7 @@ impl ParseContext {
         self.funcs.insert(name, func);
     }
 
-    fn call_rec_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<AstNode>> {
+    fn call_rec_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<AstEntry>> {
         let func_name = name.to_lowercase();
         match self.rec_funcs.get(&*func_name) {
             None =>
@@ -657,7 +688,7 @@ impl ParseContext {
                 {
                     None
                 }
-            Some(func) => Some(func.build_tokens(args, self)),
+            Some(func) => Some(func.build_tokens(args, self, span)),
         }
     }
 
@@ -671,7 +702,7 @@ impl ParseContext {
         self.builtin_funcs.contains_key(&*name)
     }
 
-    fn call_builtin_func(&self, name: &String, args: Box<[AstNode]>) -> Option<PResult<Number>> {
+    fn call_builtin_func(&self, name: &String, args: Box<[AstEntry]>) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
             None =>
@@ -725,7 +756,7 @@ struct FunctionWalker<'a> {
 }
 
 impl LitWalkerMut for FunctionWalker<'_> {
-    fn walk_lit(&self, node: &mut LiteralToken) -> Result<(), DiagnosticBuilder> {
+    fn walk_lit(&self, node: &mut LiteralToken, span: Span) -> Result<(), DiagnosticBuilder> {
         if node.kind == LiteralKind::CharSeq {
             if let Some(val) = self.arg_replacements.get(&node.content) {
                 node.kind = LiteralKind::Number;
@@ -742,24 +773,16 @@ struct FunctionInitValidator<'a> {
     func_name: &'a String,
 }
 
-impl LitWalker for FunctionInitValidator<'_> {
+impl AstWalker<()> for FunctionInitValidator<'_> {
     // FIXME: ensure that functions that are being used actually exist!
-    fn walk_lit(&self, lit_tok: &LiteralToken) -> Result<(), DiagnosticBuilder> {
+    fn walk_lit(&self, lit_tok: &LiteralToken, span: Span) -> Result<(), DiagnosticBuilder> {
         if lit_tok.kind == LiteralKind::CharSeq
             && !self.arg_names.contains(&lit_tok.content)
             && !self.parse_ctx.exists_const(&lit_tok.content)
         {
             return diagnostic_builder_spanned!(
                 self.parse_ctx.input.clone(),
-                "Not an argument, function or const",
-                lit_tok.span
-            );
-        }
-
-        if &lit_tok.content == self.func_name {
-            return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
-                "Can't call non-recursive function inside its definition",
+                "Not an argument or const",
                 lit_tok.span
             );
         }
@@ -771,6 +794,64 @@ impl LitWalker for FunctionInitValidator<'_> {
     fn get_input(&self) -> &String {
         self.parse_ctx.get_input()
     }
+
+    fn walk_binop(&self, node: &BinOpNode, span: Span) -> PResult<()> {
+        self.walk(&node.lhs)?;
+        self.walk(&node.rhs)
+    }
+
+    fn walk_unary_op(&self, node: &UnaryOpNode, span: Span) -> PResult<()> {
+        self.walk(&node.val)
+    }
+
+    fn walk_maybe_func(&self, node: &MaybeFuncNode, span: Span) -> PResult<()> {
+        // FIXME: also allow this name to be a variable name!
+        if &node.name == self.func_name {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "Can't call non-recursive function inside its definition",
+                span
+            );
+        }
+
+        if !self.parse_ctx.exists_fn(&node.name) {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                format!("There's no function called {}", &node.name),
+                span
+            );
+        }
+
+        if let Some(param) = node.param.as_ref() {
+            self.walk(&param)?;
+        }
+
+        Ok(())
+    }
+
+    fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode, span: Span) -> PResult<()> {
+        if &node.name == self.func_name {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                "Can't call non-recursive function inside its definition",
+                span
+            );
+        }
+
+        if !self.parse_ctx.exists_fn(&node.name) {
+            return diagnostic_builder_spanned!(
+                self.parse_ctx.input.clone(),
+                format!("There's no function called {}", &node.name),
+                span
+            );
+        }
+        
+        for arg in node.params.iter() {
+            self.walk(arg)?;
+        }
+
+        Ok(())
+    }
 }
 
 struct RecFunctionInitValidator<'a> {
@@ -780,7 +861,7 @@ struct RecFunctionInitValidator<'a> {
 }
 
 impl LitWalker for RecFunctionInitValidator<'_> {
-    fn walk_lit(&self, lit_tok: &LiteralToken) -> Result<(), DiagnosticBuilder> {
+    fn walk_lit(&self, lit_tok: &LiteralToken, span: Span) -> Result<(), DiagnosticBuilder> {
         if lit_tok.kind == LiteralKind::CharSeq
             && !self.arg_names.contains(&lit_tok.content)
             && !self.parse_ctx.exists_const(&lit_tok.content)
@@ -811,7 +892,7 @@ impl Function {
     pub fn new(
         name: String,
         arg_names: Box<[String]>,
-        structure: AstNode,
+        structure: AstEntry,
         parse_ctx: &ParseContext,
     ) -> PResult<Self> {
         // verify arguments are valid
@@ -824,16 +905,17 @@ impl Function {
 
         Ok(Self {
             name,
-            ast: structure,
+            ast: structure.node,
             args: arg_names,
         })
     }
 
     pub fn build_tokens(
         &self,
-        arg_values: Box<[AstNode]>,
+        arg_values: Box<[AstEntry]>,
         parse_ctx: &ParseContext,
-    ) -> PResult<AstNode> {
+        span: Span,
+    ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
@@ -856,7 +938,10 @@ impl Function {
             arg_replacements,
         };
 
-        let mut result = self.ast.clone();
+        let mut result = AstEntry {
+            span,
+            node: self.ast.clone(),
+        };
         walker.walk(&mut result)?;
         Ok(result)
     }
@@ -879,7 +964,7 @@ impl BuiltInFunction {
 
     pub fn build_tokens(
         &self,
-        arg_values: Box<[AstNode]>,
+        arg_values: Box<[AstEntry]>,
         parse_ctx: &ParseContext,
     ) -> PResult<Number> {
         if self.arg_count != arg_values.len() {
@@ -916,7 +1001,7 @@ impl RecursiveFunction {
     pub fn new(
         name: String,
         arg_names: Box<[String]>,
-        structure: AstNode,
+        structure: AstEntry,
         end_idx: usize,
         end_val: AstNode,
         parse_ctx: &ParseContext,
@@ -938,7 +1023,7 @@ impl RecursiveFunction {
 
         Ok(Self {
             name,
-            ast: structure,
+            ast: structure.node,
             args: arg_names,
             end_idx,
             end_val,
@@ -947,9 +1032,10 @@ impl RecursiveFunction {
 
     pub fn build_tokens(
         &self,
-        arg_values: Box<[AstNode]>,
+        arg_values: Box<[AstEntry]>,
         parse_ctx: &ParseContext,
-    ) -> PResult<AstNode> {
+        span: Span,
+    ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
             return diagnostic_builder!(
                 parse_ctx.input.clone(),
@@ -992,6 +1078,10 @@ impl RecursiveFunction {
             self.end_val.clone()
         } else {
             self.ast.clone()
+        };
+        let mut result = AstEntry {
+            span,
+            node: result,
         };
         walker.walk(&mut result)?;
         Ok(result)
