@@ -1,11 +1,11 @@
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
     BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
-    TrailingSpace,
+    TrailingSpace, num_from_f64,
 };
 use crate::span::{FixedTokenSpan, GenericSpan, Span};
 use crate::{_lib, diagnostic_builder, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
-use rust_decimal::prelude::One;
+use arpfloat::FP256;
 use std::collections::HashMap;
 use std::ops::{Neg, Range};
 
@@ -216,7 +216,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.as_f64() == 1.0 {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx); // remove 1
@@ -229,7 +229,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                         if let Some(token) = args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.as_f64() == 1.0 {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     remove_token_or_braced_region(
@@ -259,7 +259,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.as_f64() == 1.0 {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx); // remove 1
@@ -273,7 +273,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                         if let Some(token) = args.0 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.as_f64() == 1.0 {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx - 1); // remove 1
@@ -295,7 +295,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                         if let Some(token) = args.1 {
                             let num = shared::token_to_num(&token);
                             if let Some(num) = num {
-                                if num.is_one() {
+                                if num.as_f64() == 1.0 {
                                     let idx = token_stream.inner_idx();
                                     token_stream.inner_tokens_mut().remove(idx); // remove Op
                                     token_stream.inner_tokens_mut().remove(idx); // remove 1
@@ -458,13 +458,13 @@ impl SimplificationPass for OpSequenceSimplificationPass {
             for _ in 0..(operations.len() * 2) {
                 stream.remove_token(offset);
             }
-            let mut num_part = Number::ONE;
+            let mut num_part = Number::from_u64(FP256, 1);
             let mut var_ops = HashMap::new();
             for token in operations.iter() {
                 if let Token::Literal(lit_tok) = token {
                     match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = lit_tok.content.parse::<Number>().unwrap();
+                            let mut num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
                             num_part = num_part * num;
                         }
                         LiteralKind::CharSeq => {
@@ -478,16 +478,16 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                 }
             }
             let mut add_offset = 0;
-            if !num_part.is_one() {
+            if num_part.as_f64() != 1.0 {
                 stream
                     .inner_tokens_mut()
                     .insert(offset, Token::BinOp(FixedTokenSpan::none(), op_kind));
-                let sign = if num_part.is_sign_negative() {
+                let sign = if num_part.is_negative() {
                     SignKind::Minus
                 } else {
                     SignKind::Default
                 };
-                let mut buff = num_part.normalize().to_string();
+                let mut buff = num_part.to_string();
                 if sign == SignKind::Minus {
                     buff.remove(0);
                 }
@@ -632,13 +632,13 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
             for _ in 0..(actions.len() * 2) {
                 stream.remove_token(offset);
             }
-            let mut num_part = Number::ZERO;
+            let mut num_part = Number::from_u64(FP256, 0);
             let mut var_adds = HashMap::new();
             for token in actions.iter() {
                 if let Token::Literal(lit_tok) = &token.0 {
                     match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = lit_tok.content.parse::<Number>().unwrap();
+                            let mut num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
                             num_part = num_part + num;
                         }
                         LiteralKind::CharSeq => {
@@ -654,7 +654,7 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
             }
             let mut add_offset = 0;
             if !num_part.is_zero() {
-                if num_part.is_sign_positive() {
+                if !num_part.is_negative() {
                     stream
                         .inner_tokens_mut()
                         .insert(offset, Token::BinOp(FixedTokenSpan::none(), BinOpKind::Add));
@@ -664,8 +664,8 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                         Token::BinOp(FixedTokenSpan::none(), BinOpKind::Subtract),
                     );
                 }
-                let negative = num_part.is_sign_negative();
-                let mut buff = num_part.normalize().to_string();
+                let negative = num_part.is_negative();
+                let mut buff = num_part.to_string();
                 if negative {
                     buff.remove(0);
                 }

@@ -1,3 +1,5 @@
+use arpfloat::{FP256, Float};
+
 use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode, AstEntry};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
 use crate::equation_evaluator::{EvalWalker, resolve_simple};
@@ -5,7 +7,7 @@ use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
     num_to_num_and_sign, ArgPosition, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind,
-    LiteralToken, Number, SignKind, Token, TokenKind, TrailingSpace,
+    LiteralToken, Number, SignKind, Token, TokenKind, TrailingSpace, num_from_f64,
 };
 use crate::span::{FixedTokenSpan, Span};
 use crate::token_stream::TokenStream;
@@ -13,11 +15,9 @@ use crate::{
     _lib, diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
     register_builtin_func, register_const, ANSMode, Config, DiagnosticsConfig, Mode,
 };
-use rust_decimal::{Decimal, MathematicalOps};
 use std::collections::HashMap;
 use std::ops::Neg;
 use std::rc::Rc;
-use rust_decimal::prelude::ToPrimitive;
 
 const NONE: usize = usize::MAX;
 
@@ -526,24 +526,28 @@ impl ParseContext {
             rec_funcs: Default::default(),
             builtin_funcs: Default::default(),
         };
-        register_const!(ret, "pi", Number::PI);
-        register_const!(ret, "e", Number::E);
+        register_const!(ret, "pi", Number::pi(FP256));
+        register_const!(ret, "e", Number::e(FP256));
+        // FIXME: add asin, acos, atan
         register_builtin_func!(ret, "abs", 1, |nums| nums[0].abs());
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
         register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
-        register_builtin_func!(ret, "acos", 1, |nums| Decimal::try_from(nums[0].to_f64().unwrap().acos()).unwrap()); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "ln", 1, |nums| nums[0].ln()); // acos(-2) panics!
+        register_builtin_func!(ret, "asin", 1, |nums| num_from_f64(nums[0].as_f64().asin())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "acos", 1, |nums| num_from_f64(nums[0].as_f64().acos())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "atan", 1, |nums| num_from_f64(nums[0].as_f64().atan())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "ln", 1, |nums| num_from_f64(nums[0].as_f64().ln())); // FIXME: this is inaccurate, find a better solution!
         register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
-        register_builtin_func!(ret, "floor", 1, |nums| nums[0].floor());
-        register_builtin_func!(ret, "ceil", 1, |nums| nums[0].ceil());
-        register_builtin_func!(ret, "sqrt", 1, |nums| nums[0].sqrt().unwrap());
-        register_builtin_func!(ret, "max", 2, |nums| nums[0].max(nums[1]));
-        register_builtin_func!(ret, "min", 2, |nums| nums[0].min(nums[1]));
-        register_builtin_func!(ret, "deg", 1, |nums| nums[0]
-            * (Number::from(180) / Number::PI));
-        register_builtin_func!(ret, "rad", 1, |nums| nums[0]
-            * (Number::PI / Number::from(180)));
+        // even though these are approximations, they should be good enough
+        register_builtin_func!(ret, "floor", 1, |nums| num_from_f64(nums[0].as_f64().floor()));
+        register_builtin_func!(ret, "ceil", 1, |nums| num_from_f64(nums[0].as_f64().ceil()));
+        register_builtin_func!(ret, "sqrt", 1, |nums| nums[0].sqrt());
+        register_builtin_func!(ret, "max", 2, |nums| nums[0].max(&nums[1]));
+        register_builtin_func!(ret, "min", 2, |nums| nums[0].min(&nums[1]));
+        register_builtin_func!(ret, "deg", 1, |nums| nums[0].clone()
+            * (Number::from_u64(FP256, 180) / Number::pi(FP256)));
+        register_builtin_func!(ret, "rad", 1, |nums| nums[0].clone()
+            * (Number::pi(FP256) / Number::from_u64(FP256, 180)));
         ret
     }
 
@@ -578,7 +582,7 @@ impl ParseContext {
 
     pub fn lookup_const(&self, name: &String, parse_ctx: &ParseContext) -> PResult<Number> {
         let name = name.to_lowercase();
-        let tmp = *self.vars.get(name.as_str()).unwrap();
+        let tmp = self.vars.get(name.as_str()).unwrap().clone();
         if !tmp.0 {
             return Ok(tmp.1);
         }
@@ -1048,7 +1052,7 @@ impl RecursiveFunction {
             );
         }
 
-        let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.normalize().to_string();
+        let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.to_string();
         let mut def = false;
         if rec_param.parse::<usize>().is_err() {
             if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
@@ -1164,35 +1168,30 @@ fn test_simple_ops() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "32");
     let result = _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "0");
     let result = _lib::eval(String::from("0/(5*3+4)"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "0");
     let result = _lib::eval(String::from("-1*(5*6)"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "-30");
     let result = _lib::eval(String::from("5!"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "119.9999999999997"); // FIXME: make this 120
 }
@@ -1209,7 +1208,6 @@ fn test_functions() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "-3.2");
     _lib::eval(String::from("b(x, y)=(x/2)+3+y"), &mut context).unwrap();
@@ -1217,7 +1215,6 @@ fn test_functions() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "-0.2");
     _lib::eval(String::from("f(x) = x+4*3"), &mut context).unwrap();
@@ -1225,7 +1222,6 @@ fn test_functions() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "28");
 }
@@ -1241,14 +1237,12 @@ fn test_ans() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "-0.2");
     let result = _lib::eval(String::from("*4"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "-0.8");
 }
@@ -1266,14 +1260,12 @@ fn test_vars() {
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "38");
     let result = _lib::eval(String::from("k(2)"), &mut context)
         .unwrap()
         .0
         .unwrap()
-        .normalize()
         .to_string();
     assert_eq!(result, "68");
 }

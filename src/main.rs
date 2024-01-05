@@ -34,7 +34,7 @@ fn main() {
         match result.0 {
             Ok(val) => {
                 if let Some(num) = val.0 {
-                    println!("Result: {:?}", num);
+                    println!("Result: {}", num);
                     if let Some(err) = val.1 {
                         println!("{:?}", err);
                     }

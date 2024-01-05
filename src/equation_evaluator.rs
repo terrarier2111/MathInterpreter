@@ -3,7 +3,7 @@ use crate::ast_walker::AstWalker;
 use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
-use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind};
+use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind, num_from_f64};
 use crate::span::Span;
 use std::hint::unreachable_unchecked;
 use std::mem;
@@ -205,7 +205,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 )
             }
         } else {
-            let val = node.content.parse::<Number>().expect(&format!("expected number, but found {}", &node.content));
+            let val = num_from_f64(node.content.parse::<f64>().expect(&format!("expected number, but found {}", &node.content)));
             Ok(val)
         }
     }

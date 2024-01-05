@@ -3,8 +3,7 @@ use crate::error::DiagnosticBuilder;
 use crate::parser::{PResult, ParseContext};
 use crate::shared::ArgPosition::{LHS, RHS};
 use crate::span::{FixedTokenSpan, Span};
-use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
-use rust_decimal::{Decimal, MathematicalOps};
+use arpfloat::{Float, FP256};
 use statrs::function::gamma::gamma;
 use std::fmt::{Display, Formatter};
 use std::mem::transmute;
@@ -211,33 +210,16 @@ impl UnaryOpKind {
 
     pub(crate) fn eval(&self, arg: Number, parse_ctx: &ParseContext) -> PResult<Number> {
         match self {
-            UnaryOpKind::Pos => Ok(arg.normalize()),
-            UnaryOpKind::Neg => Ok(arg.neg().normalize()),
+            UnaryOpKind::Pos => Ok(arg),
+            UnaryOpKind::Neg => Ok(arg.neg()),
             UnaryOpKind::Factorial => {
-                /*let mut res = 1;
-                for i in 2..(arg + 1) {
-                    res *= i;
-                }
-                res*/
-                match arg.normalize().to_f64() {
-                    None => diagnostic_builder!(
-                        parse_ctx.get_input().clone(),
-                        format!("can't take factorial of such a precise number as {arg}")
-                    ),
-                    Some(num) => {
-                        // FIXME: emmit warning because of lost precision
-                        let ret_num = Number::from_f64(gamma(num + 1.0));
-                        match ret_num {
-                            None => diagnostic_builder!(
-                                parse_ctx.get_input().clone(),
-                                format!("couldn't convert {num} into a 96 bit value")
-                            ),
-                            Some(num) => Ok(num),
-                        }
-                    }
-                }
+                // FIXME: emmit warning because of lost precision
+                Ok(Number::from_f64(gamma(arg.as_f64() + 1.0)))
             }
-            UnaryOpKind::Exp(exp) => Ok(arg * Decimal::from_usize(*exp).unwrap()),
+            UnaryOpKind::Exp(exp) => { // FIXME: allow for floating point exponents!
+                // FIXME: emmit warning because of lost precision
+                Ok(Number::from_f64(arg.as_f64().powi(*exp as i32)))
+            },
         }
     }
 }
@@ -316,11 +298,10 @@ impl BinOpKind {
             BinOpKind::Subtract => args.0.unwrap() - args.1.unwrap(),
             BinOpKind::Divide => args.0.unwrap() / args.1.unwrap(),
             BinOpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
-            BinOpKind::Modulo => args.0.unwrap() % args.1.unwrap(),
-            BinOpKind::Pow => args.0.unwrap().powd(args.1.unwrap()),
+            BinOpKind::Modulo => todo!(),
+            BinOpKind::Pow => args.0.unwrap().pow(&args.1.unwrap()),
             BinOpKind::Eq => unreachable!(), // this has some special impl
         }
-        .normalize()
     }
 
     // FIXME: this should go!
@@ -394,10 +375,14 @@ impl SignKind {
     }
 }
 
-pub type Number = Decimal;
+pub type Number = Float;
+
+pub fn num_from_f64(num: f64) -> Number {
+    Number::from_f64(num).cast(FP256)
+}
 
 pub(crate) fn num_to_num_and_sign(num: Number) -> (Number, SignKind) {
-    if num.is_sign_negative() {
+    if num.is_negative() {
         (num.neg(), SignKind::Minus)
     } else {
         (num, SignKind::Default)
@@ -515,7 +500,7 @@ impl TokenStream {
 pub fn token_to_num(token: &Token) -> Option<Number> {
     if let Token::Literal(lit_tok) = token {
         if lit_tok.kind == LiteralKind::Number {
-            return Some(lit_tok.content.parse::<Number>().unwrap());
+            return Some(Float::from_f64(lit_tok.content.parse::<f64>().unwrap()).cast(FP256));
         }
     }
     None
