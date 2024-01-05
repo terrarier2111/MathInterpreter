@@ -214,12 +214,9 @@ impl UnaryOpKind {
             UnaryOpKind::Neg => Ok(arg.neg()),
             UnaryOpKind::Factorial => {
                 // FIXME: emmit warning because of lost precision
-                Ok(Number::from_f64(gamma(arg.as_f64() + 1.0)))
+                Ok(num_from_f64(gamma(arg.as_f64() + 1.0)))
             }
-            UnaryOpKind::Exp(exp) => { // FIXME: allow for floating point exponents!
-                // FIXME: emmit warning because of lost precision
-                Ok(Number::from_f64(arg.as_f64().powi(*exp as i32)))
-            },
+            UnaryOpKind::Exp(exp) => Ok(arg.powi(*exp as u64)),
         }
     }
 }
@@ -500,7 +497,7 @@ impl TokenStream {
 pub fn token_to_num(token: &Token) -> Option<Number> {
     if let Token::Literal(lit_tok) = token {
         if lit_tok.kind == LiteralKind::Number {
-            return Some(Float::from_f64(lit_tok.content.parse::<f64>().unwrap()).cast(FP256));
+            return Some(num_from_f64(lit_tok.content.parse::<f64>().unwrap()));
         }
     }
     None

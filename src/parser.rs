@@ -528,7 +528,6 @@ impl ParseContext {
         };
         register_const!(ret, "pi", Number::pi(FP256));
         register_const!(ret, "e", Number::e(FP256));
-        // FIXME: add asin, acos, atan
         register_builtin_func!(ret, "abs", 1, |nums| nums[0].abs());
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
