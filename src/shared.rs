@@ -374,6 +374,14 @@ impl SignKind {
 
 pub type Number = Float;
 
+pub fn zero() -> Number {
+    Number::zero(FP256, false)
+}
+
+pub fn one() -> Number {
+    Number::one(FP256, false)
+}
+
 pub fn num_from_f64(num: f64) -> Number {
     Number::from_f64(num).cast(FP256)
 }
