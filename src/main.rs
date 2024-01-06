@@ -14,6 +14,8 @@ mod shared;
 mod span;
 mod token_stream;
 mod utils;
+mod cli_core;
+mod cmd_line;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 
