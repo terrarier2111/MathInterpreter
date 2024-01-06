@@ -378,14 +378,6 @@ pub fn num_from_f64(num: f64) -> Number {
     Number::from_f64(num).cast(FP256)
 }
 
-pub(crate) fn num_to_num_and_sign(num: Number) -> (Number, SignKind) {
-    if num.is_negative() {
-        (num.neg(), SignKind::Minus)
-    } else {
-        (num, SignKind::Default)
-    }
-}
-
 #[derive(Copy, Clone, PartialEq)]
 pub enum Associativity {
     Left,

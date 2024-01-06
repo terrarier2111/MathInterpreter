@@ -6,7 +6,7 @@ use crate::equation_evaluator::{EvalWalker, resolve_simple};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    num_to_num_and_sign, ArgPosition, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind,
+    ArgPosition, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind,
     LiteralToken, Number, SignKind, Token, TokenKind, TrailingSpace, num_from_f64,
 };
 use crate::span::{FixedTokenSpan, Span};
@@ -579,15 +579,16 @@ impl ParseContext {
         false
     }
 
-    pub fn lookup_const(&self, name: &String, parse_ctx: &ParseContext) -> PResult<Number> {
+    pub fn lookup_const(&self, name: &String, parse_ctx: &ParseContext, span: Span) -> PResult<Number> {
         let name = name.to_lowercase();
         let tmp = self.vars.get(name.as_str()).unwrap().clone();
         if !tmp.0 {
             return Ok(tmp.1);
         }
-        diagnostic_builder!(
+        diagnostic_builder_spanned!(
             parse_ctx.input.clone(),
-            format!("`{}` is not a const", name)
+            format!("`{}` is not a const", name),
+            span
         )
     }
 
@@ -605,12 +606,14 @@ impl ParseContext {
         &mut self,
         name: &String,
         value: Number,
+        span: Span,
     ) -> Result<bool, DiagnosticBuilder> {
         let name = name.to_lowercase();
         if self.exists_fn(&name) {
-            return diagnostic_builder!(
+            return diagnostic_builder_spanned!(
                 self.input.clone(),
-                format!("There is already a variable named `{}`", name)
+                format!("There is already a variable named `{}`", name),
+                span
             );
         }
         if let Some(x) = self.vars.get(name.as_str()) {
@@ -655,7 +658,7 @@ impl ParseContext {
                 if self.rec_funcs.contains_key(&name) {
                     self.call_rec_func(&name, args, span)
                 } else {
-                    let result = self.call_builtin_func(&name, args);
+                    let result = self.call_builtin_func(&name, args, span);
                     result.map(|pr| {
                         pr.map(|num| {
                             AstEntry {
@@ -684,10 +687,6 @@ impl ParseContext {
         let func_name = name.to_lowercase();
         match self.rec_funcs.get(&*func_name) {
             None =>
-            /*diagnostic_builder!(
-                self.input.clone(),
-                format!("There is no function such as `{}`.", name) // FIXME: emmit this error message somewhere else!
-            )*/
                 {
                     None
                 }
@@ -705,18 +704,14 @@ impl ParseContext {
         self.builtin_funcs.contains_key(&*name)
     }
 
-    fn call_builtin_func(&self, name: &String, args: Box<[AstEntry]>) -> Option<PResult<Number>> {
+    fn call_builtin_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
             None =>
-            /*diagnostic_builder!(
-                self.input.clone(),
-                format!("There is no function such as `{}`.", name) // FIXME: emmit this error message somewhere else!
-            )*/
             {
                 None
             }
-            Some(func) => Some(func.build_tokens(args, self)),
+            Some(func) => Some(func.build_tokens(args, self, span)),
         }
     }
 
@@ -920,14 +915,15 @@ impl Function {
         span: Span,
     ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
-            return diagnostic_builder!(
+            return diagnostic_builder_spanned!(
                 parse_ctx.input.clone(),
                 format!(
                     "expected {} argument{}, got {}",
                     self.args.len(),
                     pluralize!(self.args.len()),
                     arg_values.len()
-                )
+                ),
+                span
             );
         }
         let mut arg_replacements = HashMap::new();
@@ -969,16 +965,18 @@ impl BuiltInFunction {
         &self,
         arg_values: Box<[AstEntry]>,
         parse_ctx: &ParseContext,
+        span: Span,
     ) -> PResult<Number> {
         if self.arg_count != arg_values.len() {
-            return diagnostic_builder!(
+            return diagnostic_builder_spanned!(
                 parse_ctx.input.clone(),
                 format!(
                     "Expected {} argument{}, got {}",
                     self.arg_count,
                     pluralize!(self.arg_count),
                     arg_values.len()
-                )
+                ),
+                span
             );
         }
         let mut args = vec![];
@@ -1008,11 +1006,13 @@ impl RecursiveFunction {
         end_idx: usize,
         end_val: AstNode,
         parse_ctx: &ParseContext,
+        span: Span,
     ) -> PResult<Self> {
         if arg_names.is_empty() {
-            return diagnostic_builder!(
+            return diagnostic_builder_spanned!(
                 parse_ctx.input.clone(),
-                "a recursion argument is required for a recursive function"
+                "a recursion argument is required for a recursive function",
+                span
             );
         }
 
@@ -1040,14 +1040,15 @@ impl RecursiveFunction {
         span: Span,
     ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
-            return diagnostic_builder!(
+            return diagnostic_builder_spanned!(
                 parse_ctx.input.clone(),
                 format!(
                     "expected {} argument{}, got {}",
                     self.args.len(),
                     pluralize!(self.args.len()),
                     arg_values.len()
-                )
+                ),
+                span
             );
         }
 
@@ -1055,7 +1056,7 @@ impl RecursiveFunction {
         let mut def = false;
         if rec_param.parse::<usize>().is_err() {
             if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
-                return diagnostic_builder!(parse_ctx.input.clone(), format!("expected a natural number as the recursion parameter, found `{}`", rec_param));
+                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("expected a natural number as the recursion parameter, found `{}`", rec_param), arg_values[0].span);
             }
         }
         if rec_param.parse::<usize>().map_or(true, |val| val <= self.end_idx) { // FIXME: is <= correct here?

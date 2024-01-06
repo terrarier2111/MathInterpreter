@@ -109,10 +109,10 @@ pub(crate) fn eval(
                     }),
                     AstNode::Lit(var) => Action::DefineVar(var.content.clone()),
                     AstNode::BinOp(_) => {
-                        return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a binary operation");
+                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a binary operation", entry.span);
                     }
                     AstNode::UnaryOp(_) => {
-                        return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got an unary operation");
+                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got an unary operation", entry.span);
                     }
                     AstNode::PartialBinOp(_) => {
                         /*if ans_mode == ANSMode::Never {
@@ -155,12 +155,13 @@ pub(crate) fn eval(
             let walker = EvalWalker { ctx: parse_ctx };
 
             let result = walker.walk(&entry)?;
-            parse_ctx.register_var(&name, result.clone())?; // FIXME: what should we do with the boolean that gets returned?
+            parse_ctx.register_var(&name, result.clone(), entry.span)?; // FIXME: what should we do with the boolean that gets returned?
             Ok(Some(result))
         }
         Action::DefineFunc(name, params) => {
             if let Some(tail) = tail {
-                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val.node, parse_ctx)?;
+                let span = entry.span;
+                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val.node, parse_ctx, span)?;
                 parse_ctx.register_rec_func(func);
             } else {
                 let func = Function::new(name, params, entry, parse_ctx)?;
