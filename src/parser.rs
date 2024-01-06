@@ -532,15 +532,15 @@ impl ParseContext {
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
         register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
-        register_builtin_func!(ret, "asin", &[(Some(-1.0), Some(1.0))], |nums| num_from_f64(nums[0].as_f64().asin())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "acos", &[(Some(-1.0), Some(1.0))], |nums| num_from_f64(nums[0].as_f64().acos())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "atan", &[(Some(-1.0), Some(1.0))], |nums| num_from_f64(nums[0].as_f64().atan())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "ln", &[(Some(f64::MIN_POSITIVE), None)], |nums| num_from_f64(nums[0].as_f64().ln())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "asin", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().asin())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "acos", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().acos())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "atan", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().atan())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| num_from_f64(nums[0].as_f64().ln())); // FIXME: this is inaccurate, find a better solution!
         register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
         // even though these are approximations, they should be good enough
         register_builtin_func!(ret, "floor", 1, |nums| num_from_f64(nums[0].as_f64().floor()));
         register_builtin_func!(ret, "ceil", 1, |nums| num_from_f64(nums[0].as_f64().ceil()));
-        register_builtin_func!(ret, "sqrt", &[(Some(0.0), None)], |nums| nums[0].sqrt());
+        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0].sqrt());
         register_builtin_func!(ret, "max", 2, |nums| nums[0].max(&nums[1]));
         register_builtin_func!(ret, "min", 2, |nums| nums[0].min(&nums[1]));
         register_builtin_func!(ret, "deg", 1, |nums| nums[0].clone()
@@ -948,15 +948,15 @@ impl Function {
 
 pub(crate) struct BuiltInFunction {
     name: String,
-    args: Vec<(Option<Number>, Option<Number>)>,
+    args: Vec<(Option<(Number, bool)>, Option<(Number, bool)>)>,
     inner: Box<dyn Fn(Vec<Number>) -> Number>,
 }
 
 impl BuiltInFunction {
-    pub fn new(name: String, args: &[(Option<f64>, Option<f64>)], inner: Box<dyn Fn(Vec<Number>) -> Number>) -> Self {
+    pub fn new(name: String, args: &[(Option<(f64, bool)>, Option<(f64, bool)>)], inner: Box<dyn Fn(Vec<Number>) -> Number>) -> Self {
         Self {
             name,
-            args: args.iter().map(|arg| (arg.0.map(|arg| num_from_f64(arg)), arg.1.map(|arg| num_from_f64(arg)))).collect::<Vec<_>>(),
+            args: args.iter().map(|arg| (arg.0.map(|(arg, eq)| (num_from_f64(arg), eq)), arg.1.map(|(arg, eq)| (num_from_f64(arg), eq)))).collect::<Vec<_>>(),
             inner,
         }
     }
@@ -984,17 +984,17 @@ impl BuiltInFunction {
             let eval_walker = EvalWalker { ctx: parse_ctx };
             let walked = eval_walker.walk(arg)?;
             let curr_arg = &self.args[args.len()];
-            if curr_arg.0.as_ref().map(|arg| arg > &walked).unwrap_or(false) {
+            if curr_arg.0.as_ref().map(|(arg, eq)| !(arg < &walked || (*eq && arg == &walked))).unwrap_or(false) {
                 return diagnostic_builder_spanned!(
                     parse_ctx.input.clone(),
-                    format!("{} is smaller than the minimum value {}", &walked, curr_arg.0.as_ref().unwrap()),
+                    format!("{} is not >{} than the minimum value {}", &walked, if curr_arg.0.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.0.as_ref().unwrap().0),
                     arg.span
                 );
             }
-            if curr_arg.1.as_ref().map(|arg| arg < &walked).unwrap_or(false) {
+            if curr_arg.1.as_ref().map(|(arg, eq)| !(arg > &walked || (*eq && arg == &walked))).unwrap_or(false) {
                 return diagnostic_builder_spanned!(
                     parse_ctx.input.clone(),
-                    format!("{} is larger than the maximum value {}", &walked, curr_arg.1.as_ref().unwrap()),
+                    format!("{} is not <{} than the maximum value {}", &walked, if curr_arg.1.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.1.as_ref().unwrap().0),
                     arg.span
                 );
             }
