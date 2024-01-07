@@ -23,7 +23,7 @@ pub trait AstWalker<T> {
             AstNode::Lit(node) => self.walk_lit(node, entry.span),
             AstNode::BinOp(node) => self.walk_binop(node, entry.span),
             AstNode::UnaryOp(node) => self.walk_unary_op(node, entry.span),
-            AstNode::PartialBinOp(_) => diagnostic_builder!(self.get_input().clone(), "found a `PartialBinOp` midst the Ast."), // FIXME: add span by using `AstEntry`!
+            AstNode::PartialBinOp(_) => diagnostic_builder!("found a `PartialBinOp` midst the Ast."), // FIXME: add span by using `AstEntry`!
         }
     }
 

@@ -19,7 +19,6 @@ pub enum Token {
     BinOp(FixedTokenSpan, BinOpKind),
     Literal(LiteralToken),
     Region(Span, Vec<Token>),
-    Other(FixedTokenSpan, char),
     EOF(FixedTokenSpan), // end of file token
 }
 
@@ -34,7 +33,6 @@ impl Token {
             Token::UnaryOp(..) => TokenKind::UnaryOp,
             Token::Literal(..) => TokenKind::Literal,
             Token::Region(..) => TokenKind::Region,
-            Token::Other(..) => TokenKind::Other,
             Token::EOF(..) => TokenKind::EOF,
         }
     }
@@ -49,7 +47,6 @@ impl Token {
             Token::UnaryOp(span, _) => span.to_unfixed_span(),
             Token::Literal(lit_tok) => lit_tok.span,
             Token::Region(sp, _) => *sp,
-            Token::Other(span, _) => span.to_unfixed_span(),
             Token::EOF(span) => span.to_unfixed_span(),
         }
     }
@@ -71,7 +68,6 @@ impl Token {
             Token::Literal(..) => ImplicitlyMultiply::Always,
             Token::Region(..) => ImplicitlyMultiply::Always,
             Token::EOF(..) => ImplicitlyMultiply::Never,
-            Token::Other(..) => unreachable!(),
         }
     }
 
@@ -92,7 +88,6 @@ impl Token {
                 result
             }
             Token::Region(_, _) => todo!(),
-            Token::Other(_, raw) => String::from(*raw),
             Token::EOF(_) => String::new(),
         }
     }
@@ -140,7 +135,6 @@ pub enum TokenKind {
     UnaryOp,
     Literal,
     Region,
-    Other,
     EOF, // end of file token
 }
 

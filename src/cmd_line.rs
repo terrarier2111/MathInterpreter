@@ -48,9 +48,14 @@ impl<CTX> CmdLineInterface<CTX> {
         None
     }
 
-    pub fn println(&self, line: &str) -> Result<(), Error> {
+    pub fn println(&self, line: &str) {
         let windows = self.windows.read().unwrap();
-        windows.last().unwrap().println(line)
+        windows.last().unwrap().println(line);
+    }
+
+    pub fn println_input_aligned(&self, line: &str) {
+        let windows = self.windows.read().unwrap();
+        windows.last().unwrap().println_input_aligned(line);
     }
 
     pub fn set_prompt(&self, prompt: String) {
@@ -151,9 +156,12 @@ impl<CTX> Window<CTX> {
         self.core.cmds()
     }
 
-    pub fn println(&self, line: &str) -> anyhow::Result<()> {
+    pub fn println(&self, line: &str) {
         self.term.println(line);
-        Ok(())
+    }
+
+    pub fn println_input_aligned(&self, line: &str) {
+        self.term.println_aligned(line);
     }
 
     pub fn handle_close(&self, ctx: &CTX) {
@@ -170,7 +178,7 @@ pub struct PrintFallback<CTX>(pub String, PhantomData<CTX>);
 
 impl<CTX> FallbackHandler<CTX> for PrintFallback<CTX> {
     fn handle(&self, input: String, window: &Window<CTX>, ctx: &CTX) -> anyhow::Result<bool> {
-        window.println(format!("{}", self.0).as_str())?;
+        window.println(format!("{}", self.0).as_str());
         Ok(false)
     }
 }
@@ -250,6 +258,7 @@ mod term {
     pub struct StdioTerm {
         print: Mutex<PrintCtx>,
         read: Mutex<ReadCtx>,
+        reading: AtomicBool,
     }
 
     fn ensure_raw() {
@@ -268,6 +277,7 @@ mod term {
             Self {
                 print: Mutex::new(PrintCtx { buffer: String::new(), prompt_len: truncated, prompt, cursor_idx: 0, whole_cursor_idx: 0 }),
                 read: Mutex::new(ReadCtx { history: Vec::with_capacity(hist_cap), allowed_chars, hist_idx: 0, insert_mode: true, interm_hist_buffer: String::new() }),
+                reading: AtomicBool::new(false),
             }
         }
 
@@ -295,24 +305,43 @@ mod term {
             lock.flush();
         }
 
-        pub fn println(&self, val: &str) {
+        fn println_inner<const ALIGNED: bool>(&self, val: &str) {
+            let input = val.split('\n');
             let print_ctx = self.print.lock().unwrap();
+            let offset = if ALIGNED {
+                print_ctx.prompt_len
+            } else {
+                0
+            };
             let mut lock = std::io::stdout().lock();
-            lock.queue(cursor::MoveToColumn(0));
-            lock.queue(style::Print(val));
-            lock.queue(terminal::Clear(terminal::ClearType::UntilNewLine));
-            lock.queue(terminal::ScrollUp(1));
-            lock.queue(cursor::MoveToColumn(0));
-            lock.queue(style::Print(&print_ctx.prompt));
-            lock.queue(style::Print(&print_ctx.buffer));
-            lock.queue(cursor::MoveToColumn(print_ctx.prompt_len as u16 + print_ctx.whole_cursor_idx as u16));
-            lock.flush();
+            for part in input {
+                lock.queue(cursor::MoveToColumn(offset as u16));
+                lock.queue(style::Print(part));
+                lock.queue(terminal::Clear(terminal::ClearType::UntilNewLine));
+                lock.queue(terminal::ScrollUp(1));
+            }
+            if self.reading.load(std::sync::atomic::Ordering::Acquire) {
+                lock.queue(cursor::MoveToColumn(0));
+                lock.queue(style::Print(&print_ctx.prompt));
+                lock.queue(style::Print(&print_ctx.buffer));
+                lock.queue(cursor::MoveToColumn(print_ctx.prompt_len as u16 + print_ctx.whole_cursor_idx as u16));
+                lock.flush();
+            }
+        }
+
+        pub fn println(&self, val: &str) {
+            self.println_inner::<false>(val)
+        }
+
+        pub fn println_aligned(&self, val: &str) {
+            self.println_inner::<true>(val)
         }
 
         pub fn read_line_prompt(&self, can_leave: bool) -> Option<String> {
             let mut read_ctx = self.read.lock().unwrap();
+            self.reading.store(true, std::sync::atomic::Ordering::Release);
             self.reapply_prompt();
-            'ret: loop {
+            let ret = 'ret: loop {
                 if poll(Duration::MAX).unwrap() {
                     match read().unwrap() {
                         crossterm::event::Event::FocusGained => {},
@@ -526,7 +555,9 @@ mod term {
                         crossterm::event::Event::Resize(_, _) => {},
                     }
                 }
-            }
+            };
+            self.reading.store(false, std::sync::atomic::Ordering::Release);
+            ret
         }
 
     }

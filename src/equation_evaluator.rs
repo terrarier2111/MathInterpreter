@@ -20,10 +20,10 @@ pub(crate) fn eval(
             let walker = EvalWalker { ctx: parse_ctx };
             let ret = if let AstNode::PartialBinOp(node) = entry.node {
                 if node.op == BinOpKind::Eq {
-                    return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "can't set a previous result equal to some new one - ANS doesn't work with `Eq`.", entry.span);
+                    return diagnostic_builder_spanned!("can't set a previous result equal to some new one - ANS doesn't work with `Eq`.", entry.span);
                 }
                 if ans_mode == ANSMode::Never {
-                    return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "ANS is disabled!", entry.span); // FIXME: improve this!
+                    return diagnostic_builder_spanned!("ANS is disabled!", entry.span); // FIXME: improve this!
                 }
                 if let Some(last) = parse_ctx.get_last() {
                     match node.op {
@@ -44,7 +44,7 @@ pub(crate) fn eval(
                         }
                         ret
                     } else {
-                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.", entry.span);
+                        return diagnostic_builder_spanned!("There is no previous result to be used in the ANS calculation.", entry.span);
                     }
                 }
             } else if let AstNode::UnaryOp(node) = &entry.node {
@@ -56,7 +56,7 @@ pub(crate) fn eval(
                             walker.walk(&*node.val).map(|x| last.add(x))
                         }
                     } else {
-                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "There is no previous result to be used in the ANS calculation.", entry.span);
+                        return diagnostic_builder_spanned!("There is no previous result to be used in the ANS calculation.", entry.span);
                     }
                 } else {
                     walker.walk(&entry)
@@ -82,7 +82,6 @@ pub(crate) fn eval(
                                     result.push(lit.content.clone()); // FIXME: can we get rid of this clone?
                                 } else {
                                     return diagnostic_builder_spanned!(
-                                        parse_ctx.get_input().clone(),
                                         "expected a parameter name, but got an expression",
                                         param.span
                                     );
@@ -99,7 +98,6 @@ pub(crate) fn eval(
                                     Ok(Box::new([lit.content]))
                                 } else {
                                     diagnostic_builder_spanned!(
-                                        parse_ctx.get_input().clone(),
                                         "expected a parameter name, but got an expression",
                                         param.span
                                     )
@@ -109,10 +107,10 @@ pub(crate) fn eval(
                     }),
                     AstNode::Lit(var) => Action::DefineVar(var.content.clone()),
                     AstNode::BinOp(_) => {
-                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a binary operation", entry.span);
+                        return diagnostic_builder_spanned!("expected a function signature or variable name, but got a binary operation", entry.span);
                     }
                     AstNode::UnaryOp(_) => {
-                        return diagnostic_builder_spanned!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got an unary operation", entry.span);
+                        return diagnostic_builder_spanned!("expected a function signature or variable name, but got an unary operation", entry.span);
                     }
                     AstNode::PartialBinOp(_) => {
                         /*if ans_mode == ANSMode::Never {
@@ -200,7 +198,6 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 Ok(val)
             } else {
                 diagnostic_builder_spanned!(
-                    self.ctx.get_input().clone(),
                     format!("there is no variable, function or constant named {}", node.content),
                     span
                 )
@@ -264,7 +261,6 @@ impl AstWalker<Number> for EvalWalker<'_> {
             self.walk(&result)
         } else {
             diagnostic_builder_spanned!(
-                self.ctx.get_input().clone(),
                 format!("there is no function named {}", node.name),
                 span
             )

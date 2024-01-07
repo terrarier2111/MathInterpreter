@@ -96,18 +96,18 @@ impl FallbackHandler<Calculator> for CalcFallback {
         match result.0 {
             Ok(val) => {
                 if let Some(num) = val.0 {
-                    ctx.cli.println(format!("Result: {}", num).as_str())?;
+                    ctx.cli.println(format!("Result: {}", num).as_str());
                     if let Some(err) = val.1 {
-                        ctx.cli.println(format!("{:?}", err).as_str())?;
+                        ctx.cli.println(format!("{:?}", err).as_str());
                     }
                 } else if let Some(err) = val.1 {
-                    ctx.cli.println(format!("{:?}", err).as_str())?;
+                    ctx.cli.println(format!("{:?}", err).as_str());
                 } else {
-                    ctx.cli.println("Ok!")?;
+                    ctx.cli.println("Ok!");
                 }
             },
             Err(err) => {
-                ctx.cli.println(format!("Encountered an error:\n{}", err).as_str())?;
+                ctx.cli.println_input_aligned(format!("{}", err).as_str());
             }
         }
         Ok(false)

@@ -18,7 +18,7 @@ impl Lexer {
     pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
         let mut tokens: Vec<Token> = vec![];
         let mut cursor = 0_usize;
-        let mut diagnostics_builder = DiagnosticBuilder::new(input.clone());
+        let mut diagnostics_builder = DiagnosticBuilder::new();
         let chars = input.chars().collect::<Vec<_>>();
         ///
         ///
@@ -91,7 +91,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -108,7 +107,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -120,7 +118,6 @@ impl Lexer {
                         && matches!(tokens.last().unwrap().kind(), TokenKind::At)
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -133,7 +130,6 @@ impl Lexer {
                         && matches!(last, Token::At(..) | Token::BinOp(_, BinOpKind::Eq))
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -149,7 +145,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -161,7 +156,6 @@ impl Lexer {
                         if let Token::Literal(LiteralToken { content, trailing_space, span, .. }) = tokens.last().unwrap() {
                             if ('0'..'9').contains(&content.chars().last().unwrap()) && *trailing_space != TrailingSpace::Yes {
                                 return diagnostic_builder_spanned!(
-                                    input.clone(),
                                     format!("`{}{}` is ambiguous", content, curr),
                                     {
                                         let mut new_span = span.clone();
@@ -173,7 +167,6 @@ impl Lexer {
                         }
                     }
                     return diagnostic_builder!(
-                        input.clone(),
                         format!("`{}` at wrong location", curr),
                         cursor
                     );
@@ -186,7 +179,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -201,7 +193,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location.", curr),
                             cursor
                         );
@@ -216,7 +207,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -231,7 +221,6 @@ impl Lexer {
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -256,11 +245,10 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::UnaryOp
+                            TokenKind::At// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
                         )
                     {
                         return diagnostic_builder!(
-                            input.clone(),
                             format!("`{}` at wrong location", curr),
                             cursor
                         );
@@ -307,7 +295,10 @@ impl Lexer {
                     ));
                 }
                 _ => {
-                    curr_token = Some(Token::Other(FixedTokenSpan::new(cursor), curr));
+                    return diagnostic_builder!(
+                        format!("`{}` is not a known token", curr),
+                        cursor
+                    );
                 }
             }
 

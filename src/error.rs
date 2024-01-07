@@ -5,21 +5,18 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
 pub struct DiagnosticBuilder {
-    input: String,
     items: Vec<DiagnosticItem>,
 }
 
 impl DiagnosticBuilder {
-    pub fn new(input: String) -> Self {
+    pub fn new() -> Self {
         Self {
-            input,
             items: vec![],
         }
     }
 
-    pub(crate) fn from_input_and_err_with_span(input: String, error: String, span: Span) -> Self {
+    pub(crate) fn from_err_with_span(error: String, span: Span) -> Self {
         let mut ret = Self {
-            input,
             items: vec![],
         };
         ret.error_spanned(error, span);
@@ -27,8 +24,8 @@ impl DiagnosticBuilder {
     }
 
     #[inline]
-    pub(crate) fn from_input_and_err(input: String, error: String) -> Self {
-        Self::from_input_and_err_with_span(input, error, Span::NONE)
+    pub(crate) fn from_err(error: String) -> Self {
+        Self::from_err_with_span(error, Span::NONE)
     }
 
     pub fn error_spanned(&mut self, error: String, span: Span) -> &mut Self {
@@ -79,7 +76,7 @@ impl Display for DiagnosticBuilder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut combined = String::new();
         for x in self.items.iter() {
-            combined.push_str(&*x.to_string(&self.input));
+            combined.push_str(&*x.to_string());
         }
         f.write_str(&*combined)
     }
@@ -96,26 +93,22 @@ pub(crate) enum DiagnosticItem {
 }
 
 impl DiagnosticItem {
-    pub fn to_string(&self, input: &String) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             DiagnosticItem::Error(str, span) => {
                 if !span.is_none() {
-                    input.to_owned()
-                        + "\n"
-                        + &DiagnosticBuilder::build_span_string(span).red().to_string()
+                        DiagnosticBuilder::build_span_string(span).red().to_string()
                         + "\n"
                         + &" ".repeat(span.start)
                         + &str.red().to_string()
                         + "\n"
                 } else {
-                    input.to_owned() + "\n" + &str.red().to_string() + "\n"
+                    str.red().to_string() + "\n"
                 }
             }
             DiagnosticItem::Warn(str, span) => {
                 if !span.is_none() {
-                    input.to_owned()
-                        + "\n"
-                        + &DiagnosticBuilder::build_span_string(span)
+                        DiagnosticBuilder::build_span_string(span)
                             .yellow()
                             .to_string()
                         + "\n"
@@ -123,20 +116,18 @@ impl DiagnosticItem {
                         + &str.yellow().to_string()
                         + "\n"
                 } else {
-                    input.to_owned() + "\n" + &str.yellow().to_string() + "\n"
+                    str.yellow().to_string() + "\n"
                 }
             }
             DiagnosticItem::Suggestion(str, span) => {
                 if !span.is_none() {
-                    input.to_owned()
-                        + "\n"
-                        + &DiagnosticBuilder::build_span_string(span)
+                        DiagnosticBuilder::build_span_string(span)
                         + "\n"
                         + &" ".repeat(span.start)
                         + str
                         + "\n"
                 } else {
-                    input.to_owned() + "\n" + str + "\n"
+                    str.clone() + "\n"
                 }
             }
             DiagnosticItem::Note(str) => String::from("note: ") + str + "\n",
@@ -146,25 +137,22 @@ impl DiagnosticItem {
 
 #[macro_export]
 macro_rules! diagnostic_builder {
-    ($input:expr, $error:literal) => {
-        Err(DiagnosticBuilder::from_input_and_err(
-            $input,
+    ($error:literal) => {
+        Err(DiagnosticBuilder::from_err(
             $error.to_string(),
         ))
     };
-    ($input:expr, $error:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err($input, $error))
+    ($error:expr) => {
+        Err(DiagnosticBuilder::from_err($error))
     };
-    ($input:expr, $error:literal, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span(
-            $input,
+    ($error:literal, $sp:expr) => {
+        Err(DiagnosticBuilder::from_err_with_span(
             $error.to_string(),
             Span::single_token($sp),
         ))
     };
-    ($input:expr, $error:expr, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span(
-            $input,
+    ($error:expr, $sp:expr) => {
+        Err(DiagnosticBuilder::from_err_with_span(
             $error,
             Span::single_token($sp),
         ))
@@ -173,16 +161,15 @@ macro_rules! diagnostic_builder {
 
 #[macro_export]
 macro_rules! diagnostic_builder_spanned {
-    ($input:expr, $error:literal, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span(
-            $input,
+    ($error:literal, $sp:expr) => {
+        Err(DiagnosticBuilder::from_err_with_span(
             $error.to_string(),
             $sp,
         ))
     };
-    ($input:expr, $error:expr, $sp:expr) => {
-        Err(DiagnosticBuilder::from_input_and_err_with_span(
-            $input, $error, $sp,
+    ($error:expr, $sp:expr) => {
+        Err(DiagnosticBuilder::from_err_with_span(
+            $error, $sp,
         ))
     };
 }

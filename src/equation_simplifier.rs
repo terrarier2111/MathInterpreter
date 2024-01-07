@@ -873,7 +873,6 @@ pub(crate) fn parse_braced_call_region(
     }
     if open != 0 {
         return diagnostic_builder!(
-            input.clone(),
             "The brace count during region parsing didn't match!"
         );
     }
@@ -909,7 +908,6 @@ pub(crate) fn parse_braced_call_region_backwards(
     }
     if closed != 0 {
         return diagnostic_builder!(
-            input.clone(),
             format!(
                 "The brace count during region parsing didn't match! {}",
                 closed

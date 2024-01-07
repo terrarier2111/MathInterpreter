@@ -193,7 +193,6 @@ impl<'a> Parser<'a> {
 
                 if !self.eat(TokenKind::ClosedParen) {
                     return diagnostic_builder_spanned!(
-                        self.parse_ctx.input.clone(),
                         "expected `)`",
                         Span::single_token(self.curr.span().end) // FIXME: should we add 1 to the passed value?
                     );
@@ -236,14 +235,14 @@ impl<'a> Parser<'a> {
 
         if idx.is_none() {
             if let Some(token) = self.token_stream.get_next() {
-                return diagnostic_builder_spanned!(self.parse_ctx.input.clone(), "expected natural number after `@`", token.span()); // FIXME: improve this error message!
+                return diagnostic_builder_spanned!("expected natural number after `@`", token.span()); // FIXME: improve this error message!
             } else {
-                return diagnostic_builder!(self.parse_ctx.input.clone(), "expected natural number after `@`"); // FIXME: improve this error message!
+                return diagnostic_builder!("expected natural number after `@`"); // FIXME: improve this error message!
             }
         }
 
         if !self.eat_binop(BinOpKind::Eq) {
-            return diagnostic_builder!(self.parse_ctx.input.clone(), "expected `=`"); // FIXME: improve this error message!
+            return diagnostic_builder!("expected `=`"); // FIXME: improve this error message!
         }
 
         let val = self.parse_primary()?/*self.parse_binop()?*/;
@@ -260,7 +259,7 @@ impl<'a> Parser<'a> {
             self.advance();
             match ret.content.parse() {
                 Ok(val) => Ok(Some(val)),
-                Err(_) => diagnostic_builder_spanned!(self.parse_ctx.input.clone(), format!("expected natural number, found `{}`", &ret.content), ret.span),
+                Err(_) => diagnostic_builder_spanned!(format!("expected natural number, found `{}`", &ret.content), ret.span),
             }
         } else {
             Ok(None)
@@ -339,7 +338,6 @@ impl<'a> Parser<'a> {
     fn parse_paren_expr(&mut self) -> PResult<AstEntry> {
         if !self.eat(TokenKind::OpenParen) {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "expected `{`",
                 self.curr.span()
             );
@@ -348,7 +346,6 @@ impl<'a> Parser<'a> {
 
         if !self.eat(TokenKind::ClosedParen) {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "expected `}`",
                 self.curr.span()
             );
@@ -380,7 +377,6 @@ impl<'a> Parser<'a> {
                     self.parse_unary_arg_rhs()
                 } else {
                     diagnostic_builder_spanned!(
-                        self.parse_ctx.input.clone(),
                         format!("can't find argument of unary {}", self.curr.to_raw()),
                         self.curr.span()
                     )
@@ -399,7 +395,6 @@ impl<'a> Parser<'a> {
                 })
             }
             _ => diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 format!(
                     "expected primary, found {} of type {:?}",
                     self.curr.to_raw(),
@@ -586,7 +581,6 @@ impl ParseContext {
             return Ok(tmp.1);
         }
         diagnostic_builder_spanned!(
-            parse_ctx.input.clone(),
             format!("`{}` is not a const", name),
             span
         )
@@ -611,7 +605,6 @@ impl ParseContext {
         let name = name.to_lowercase();
         if self.exists_fn(&name) {
             return diagnostic_builder_spanned!(
-                self.input.clone(),
                 format!("There is already a variable named `{}`", name),
                 span
             );
@@ -779,7 +772,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
             && !self.parse_ctx.exists_const(&lit_tok.content)
         {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "Not an argument or const",
                 lit_tok.span
             );
@@ -806,7 +798,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
         // FIXME: also allow this name to be a variable name!
         if &node.name == self.func_name {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "Can't call non-recursive function inside its definition",
                 span
             );
@@ -814,7 +805,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
 
         if !self.parse_ctx.exists_fn(&node.name) {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 format!("There's no function called {}", &node.name),
                 span
             );
@@ -830,7 +820,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
     fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode, span: Span) -> PResult<()> {
         if &node.name == self.func_name {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "Can't call non-recursive function inside its definition",
                 span
             );
@@ -838,7 +827,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
 
         if !self.parse_ctx.exists_fn(&node.name) {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 format!("There's no function called {}", &node.name),
                 span
             );
@@ -866,7 +854,6 @@ impl LitWalker for RecFunctionInitValidator<'_> {
             && (!self.parse_ctx.exists_fn(&lit_tok.content) || &lit_tok.content == self.func_name)
         {
             return diagnostic_builder_spanned!(
-                self.parse_ctx.input.clone(),
                 "Not an argument, function or const",
                 lit_tok.span
             );
@@ -916,7 +903,6 @@ impl Function {
     ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
             return diagnostic_builder_spanned!(
-                parse_ctx.input.clone(),
                 format!(
                     "expected {} argument{}, got {}",
                     self.args.len(),
@@ -969,7 +955,6 @@ impl BuiltInFunction {
     ) -> PResult<Number> {
         if self.args.len() != arg_values.len() {
             return diagnostic_builder_spanned!(
-                parse_ctx.input.clone(),
                 format!(
                     "Expected {} argument{}, got {}",
                     self.args.len(),
@@ -986,14 +971,12 @@ impl BuiltInFunction {
             let curr_arg = &self.args[args.len()];
             if curr_arg.0.as_ref().map(|(arg, eq)| !(arg < &walked || (*eq && arg == &walked))).unwrap_or(false) {
                 return diagnostic_builder_spanned!(
-                    parse_ctx.input.clone(),
                     format!("{} is not >{} than the minimum value {}", &walked, if curr_arg.0.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.0.as_ref().unwrap().0),
                     arg.span
                 );
             }
             if curr_arg.1.as_ref().map(|(arg, eq)| !(arg > &walked || (*eq && arg == &walked))).unwrap_or(false) {
                 return diagnostic_builder_spanned!(
-                    parse_ctx.input.clone(),
                     format!("{} is not <{} than the maximum value {}", &walked, if curr_arg.1.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.1.as_ref().unwrap().0),
                     arg.span
                 );
@@ -1025,7 +1008,6 @@ impl RecursiveFunction {
     ) -> PResult<Self> {
         if arg_names.is_empty() {
             return diagnostic_builder_spanned!(
-                parse_ctx.input.clone(),
                 "a recursion argument is required for a recursive function",
                 span
             );
@@ -1056,7 +1038,6 @@ impl RecursiveFunction {
     ) -> PResult<AstEntry> {
         if self.args.len() != arg_values.len() {
             return diagnostic_builder_spanned!(
-                parse_ctx.input.clone(),
                 format!(
                     "expected {} argument{}, got {}",
                     self.args.len(),
@@ -1071,7 +1052,7 @@ impl RecursiveFunction {
         let mut def = false;
         if rec_param.parse::<usize>().is_err() {
             if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
-                return diagnostic_builder_spanned!(parse_ctx.input.clone(), format!("expected a natural number as the recursion parameter, found `{}`", rec_param), arg_values[0].span);
+                return diagnostic_builder_spanned!(format!("expected a natural number as the recursion parameter, found `{}`", rec_param), arg_values[0].span);
             }
         }
         if rec_param.parse::<usize>().map_or(true, |val| val <= self.end_idx) { // FIXME: is <= correct here?
