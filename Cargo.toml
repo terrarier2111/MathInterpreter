@@ -10,11 +10,12 @@ edition = "2021"
 # rust_decimal = { version = "1.27.0", features = ["maths"] } # FIXME: Use an arbitrary decimal crate instead!
 # rust_decimal_macros = "1.27.0"
 # f256 = "0.2.0"
-arpfloat = "0.1.9"
+arpfloat = "0.1.10"
 colored = "2.0.0"
 # used for factorial calculations for floating point numbers
 statrs = "0.16.0"
 crossterm = "0.27.0"
 anyhow = "1.0.79"
 strip-ansi-escapes = "0.2.0"
+swap-arc = "0.1.1"
 # rustc_apfloat = "0.2.0+llvm-462a31f5a5ab"

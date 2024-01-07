@@ -311,6 +311,7 @@ mod term {
 
         pub fn read_line_prompt(&self, can_leave: bool) -> Option<String> {
             let mut read_ctx = self.read.lock().unwrap();
+            self.reapply_prompt();
             'ret: loop {
                 if poll(Duration::MAX).unwrap() {
                     match read().unwrap() {

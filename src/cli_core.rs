@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
+// FIXME: apply constraints
 pub struct CLICore<C> {
     cmds: Arc<HashMap<String, Command<C>>>,
 }
@@ -73,7 +74,7 @@ pub enum InputError {
 impl Debug for InputError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            InputError::ArgumentCnt { name, expected, got } => f.write_str(format!("The command \"{}\" expects an argument count of {} but only {} arguments were found", name.as_str(), *expected, *got).as_str()),
+            InputError::ArgumentCnt { name, expected, got } => f.write_str(format!("The command \"{}\" expects an argument count of {} but only {} argument{} found", name.as_str(), *expected, *got, if *got == 1 { " was" } else { "s were" }).as_str()),
             InputError::CommandNotFound { name } => f.write_str(format!("The command \"{}\" does not exist", name).as_str()),
             InputError::InputEmpty => f.write_str("The given input was found to be empty"),
             InputError::ExecError { name, error } => f.write_str(format!("There was an error executing the command \"{}\": \"{}\"", name, error).as_str()),
@@ -220,6 +221,21 @@ impl CommandParamTy {
             CommandParamTy::String(constraints) => match constraints {
                 CmdParamStrConstraints::Range(range) => format!("string(length {} to {})", range.start, range.end),
                 CmdParamStrConstraints::None => String::from("string"),
+                CmdParamStrConstraints::Variants { variants, ignore_case } => {
+                    let mut str = String::new();
+                    str.push_str("string");
+                    if variants.len() != 0 {
+                        str.push('(');
+                        for variant in variants.iter() {
+                            str.push_str(variant);
+                            str.push_str(", ");
+                        }
+                        str.pop();
+                        str.pop();
+                        str.push(')');
+                    }
+                    str
+                }
             },
             CommandParamTy::Enum(variants) => {
                 let mut finished = String::from("variants:\r\n");
@@ -271,6 +287,10 @@ pub enum CmdParamDecimalConstraints<T> {
 
 pub enum CmdParamStrConstraints {
     Range(Range<usize>),
+    Variants {
+        variants: &'static [&'static str],
+        ignore_case: bool,
+    },
     None,
 }
 

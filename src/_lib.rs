@@ -41,7 +41,7 @@ impl Default for DiagnosticsPrintingOrder {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Mode {
     Eval,
     Simplify,
@@ -55,8 +55,8 @@ pub enum ANSMode {
     Always,
 }
 
-pub fn eval(input: String, eval_ctx: &mut EvalContext) -> ParseResult<Option<Number>> {
-    eval_ctx.parse_ctx.set_input(input.clone());
+pub fn eval(input: String, eval_ctx: &EvalContext) -> ParseResult<Option<Number>> {
+    eval_ctx.parse_ctx.write().unwrap().set_input(input.clone());
     __lib::eval(input, eval_ctx)
 }
 
