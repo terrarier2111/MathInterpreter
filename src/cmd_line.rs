@@ -324,25 +324,25 @@ mod term {
                                     match ev.code {
                                         crossterm::event::KeyCode::Backspace => {
                                             if print_ctx.cursor_idx != 0 {
-                                                if let Some(chr) = print_ctx.buffer.pop() {
-                                                    let size = char_size(chr);
-                                                    print_ctx.cursor_idx -= size;
-                                                    print_ctx.whole_cursor_idx -= 1;
-                                                    let mut lock = std::io::stdout().lock();
-                                                    lock.queue(cursor::MoveToColumn(0));
-                                                    lock.queue(style::Print(&print_ctx.prompt));
-                                                    lock.queue(style::Print(&print_ctx.buffer));
-                                                    lock.queue(style::Print(" "));
-                                                    lock.queue(cursor::MoveToColumn(print_ctx.prompt_len as u16 + print_ctx.whole_cursor_idx as u16));
-                                                    lock.flush();
-                                                }
+                                                let cursor = print_ctx.cursor_idx;
+                                                let cursor = char_start(&print_ctx.buffer, cursor - 1);
+                                                let size = char_size(print_ctx.buffer.as_bytes()[cursor as usize] as char);
+                                                print_ctx.buffer.remove(cursor);
+                                                print_ctx.cursor_idx -= size;
+                                                print_ctx.whole_cursor_idx -= 1;
+                                                let mut lock = std::io::stdout().lock();
+                                                lock.queue(cursor::MoveToColumn(0));
+                                                lock.queue(style::Print(&print_ctx.prompt));
+                                                lock.queue(style::Print(&print_ctx.buffer));
+                                                lock.queue(style::Print(" "));
+                                                lock.queue(cursor::MoveToColumn(print_ctx.prompt_len as u16 + print_ctx.whole_cursor_idx as u16));
+                                                lock.flush();
                                             }
                                         },
                                         crossterm::event::KeyCode::Enter => {
                                             let mut lock = std::io::stdout().lock();
                                             lock.queue(terminal::ScrollUp(1));
                                             lock.queue(cursor::MoveToColumn(0));
-                                            lock.queue(style::Print(&print_ctx.prompt));
                                             lock.flush();
                                             print_ctx.cursor_idx = 0;
                                             print_ctx.whole_cursor_idx = 0;
