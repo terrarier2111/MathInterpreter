@@ -12,11 +12,12 @@ Features are:
 ✅ | Performing basic calculations\
 ✅ | Defining and using variables\
 ✅ | Defining and using functions\
-✅ | 96 bit decimal accuracy\
-✅ | Default functions/consts\
+✅ | 256 bit decimal accuracy\
+✅ | Default functions/consts (for math and physics)\
 ✅ | Inferred multiplication i.e: `4 (3 + 2)` = `20`\
+✅ | Using results of previous calculations\
 🛠️ | Recursive functions\
-🛠️ | Proper error propagation and providing suggestions\
+🛠️ | Human readable diagnostics (errors, warnings, suggestions)\
 🛠️ | Validation of input\
 🛠️ | Api\
 🛠️ | Equation solving/simplification\
