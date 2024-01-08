@@ -448,6 +448,7 @@ mod term {
                                                 print_ctx.buffer = core::mem::replace(&mut read_ctx.interm_hist_buffer, String::new());
                                             }
                                             print_ctx.cursor_idx = print_ctx.buffer.len();
+                                            print_ctx.whole_cursor_idx = print_ctx.buffer.chars().count();
                                             let mut lock = std::io::stdout().lock();
                                             lock.queue(cursor::MoveToColumn(0));
                                             lock.queue(style::Print(" ".repeat(print_ctx.prompt_len + buf_len)));
@@ -545,7 +546,7 @@ mod term {
                             let cursor = print_ctx.cursor_idx;
                             print_ctx.buffer.insert_str(cursor, paste.as_str());
                             print_ctx.cursor_idx += paste.len();
-                            print_ctx.whole_cursor_idx += 1;
+                            print_ctx.whole_cursor_idx += paste.chars().count();
                             lock.queue(cursor::MoveToColumn(0));
                             lock.queue(style::Print(&print_ctx.prompt));
                             lock.queue(style::Print(&print_ctx.buffer));
