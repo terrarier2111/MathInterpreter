@@ -16,12 +16,15 @@ mod token_stream;
 mod utils;
 mod cli_core;
 mod cmd_line;
+mod conc_once_cell;
+mod sized_box;
 
 use std::{sync::Arc, ops::Deref, fmt::Display, error::Error};
 
 use __lib::EvalContext;
 use cli_core::{CommandBuilder, CommandImpl, UsageBuilder, CommandParam};
 use cmd_line::{CLIBuilder, CmdLineInterface, FallbackHandler};
+use parser::ConstantSetKind;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 
@@ -34,7 +37,11 @@ fn main() {
     .command(CommandBuilder::new("$mode", CmdMode).params(UsageBuilder::new().required(CommandParam {
         name: "mode".to_string(),
         ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["simplify", "eval", "solve"], ignore_case: true }),
-    }))).fallback(Box::new(CalcFallback)).build();
+    }))).command(CommandBuilder::new("$set", CmdSet).params(UsageBuilder::new().required(CommandParam {
+        name: "action".to_string(),
+        ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["register", "unregister", "list"], ignore_case: true }),
+    }).required(CommandParam { name: "set".to_string(), ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["math", "physics"], ignore_case: true }) })))
+    .fallback(Box::new(CalcFallback)).build();
     let cli = CmdLineInterface::new(cli);
     let context = Arc::new(_lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
@@ -85,6 +92,98 @@ impl Display for ModeDoesNotExistError {
         f.write_str("the mode ")?;
         f.write_str(self.0.as_str())?;
         f.write_str(" does not exist")
+    }
+}
+
+struct CmdSet;
+
+impl CommandImpl for CmdSet {
+    type CTX = Calculator;
+
+    // TODO: support `all` superset.
+    fn execute(&self, ctx: &Self::CTX, input: &[&str]) -> anyhow::Result<()> {
+        let set = match input[1].to_lowercase().as_str() {
+            "math" => Ok(ConstantSetKind::Math),
+            "physics" => Ok(ConstantSetKind::Physics),
+            _ => Err(anyhow::Error::from(SetDoesNotExistError(input[1].to_string()))),
+        }?;
+        let mut set_ctx = ctx.ctx.parse_ctx.write().unwrap();
+        match input[0].to_lowercase().as_str() {
+            "register" => {
+                if set_ctx.registered_sets.contains(&set) {
+                    return Err(anyhow::Error::from(SetAlreadyRegisteredError(input[1].to_string())));
+                }
+                set_ctx.register_set(set);
+                ctx.cli.println(format!("Registered the set `{}`", input[1]).as_str());
+                Ok(())
+            },
+            "unregister" => {
+                if !set_ctx.registered_sets.contains(&set) {
+                    return Err(anyhow::Error::from(SetNotRegisteredError(input[1].to_string())));
+                }
+                set_ctx.unregister_set(set);
+                ctx.cli.println(format!("Unregistered the set `{}`", input[1]).as_str());
+                Ok(())
+            },
+            "list" => {
+                ctx.cli.println(format!("Sets({}):", set_ctx.registered_sets.len()).as_str());
+                for set in set_ctx.registered_sets.iter() {
+                    let mut values = String::new();
+                    for value in set.values().iter() {
+                        values.push_str(value.0);
+                        values.push_str(": ");
+                        values.push_str(value.1.as_f64().to_string().as_str()); // TODO: decide how many places after 0 we want!
+                        values.push_str(", ");
+                    }
+                    if !values.is_empty() {
+                        values.pop();
+                        values.pop();
+                    }
+                    ctx.cli.println(format!("{}: {}", set.name(), values).as_str());
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::Error::from(ModeDoesNotExistError(input[0].to_string())))
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SetDoesNotExistError(String);
+
+impl Error for SetDoesNotExistError {}
+
+impl Display for SetDoesNotExistError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the set ")?;
+        f.write_str(self.0.as_str())?;
+        f.write_str(" does not exist")
+    }
+}
+
+#[derive(Debug)]
+struct SetAlreadyRegisteredError(String);
+
+impl Error for SetAlreadyRegisteredError {}
+
+impl Display for SetAlreadyRegisteredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the set ")?;
+        f.write_str(self.0.as_str())?;
+        f.write_str(" is already registered")
+    }
+}
+
+#[derive(Debug)]
+struct SetNotRegisteredError(String);
+
+impl Error for SetNotRegisteredError {}
+
+impl Display for SetNotRegisteredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the set ")?;
+        f.write_str(self.0.as_str())?;
+        f.write_str(" is not yet registered")
     }
 }
 

@@ -2,6 +2,7 @@ use arpfloat::{FP256, Float};
 
 use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode, AstEntry};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
+use crate::conc_once_cell::ConcurrentOnceCell;
 use crate::equation_evaluator::{EvalWalker, resolve_simple};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
@@ -509,6 +510,7 @@ pub(crate) struct ParseContext {
     funcs: HashMap<String, Function>,
     rec_funcs: HashMap<String, RecursiveFunction>,
     builtin_funcs: HashMap<String, BuiltInFunction>,
+    pub registered_sets: Vec<ConstantSetKind>,
 }
 
 impl ParseContext {
@@ -520,6 +522,7 @@ impl ParseContext {
             funcs: Default::default(),
             rec_funcs: Default::default(),
             builtin_funcs: Default::default(),
+            registered_sets: vec![ConstantSetKind::Math],
         };
         register_const!(ret, "pi", Number::pi(FP256));
         register_const!(ret, "e", Number::e(FP256));
@@ -543,6 +546,27 @@ impl ParseContext {
         register_builtin_func!(ret, "rad", 1, |nums| nums[0].clone()
             * (Number::pi(FP256) / Number::from_u64(FP256, 180)));
         ret
+    }
+
+    pub fn register_set(&mut self, set: ConstantSetKind) {
+        for con in set.values().iter() {
+            self.register_const(con.0, con.1.clone());
+        }
+    }
+
+    pub fn unregister_set(&mut self, set: ConstantSetKind) {
+        for con in set.values().iter() {
+            self.vars.remove(con.0);
+        }
+    }
+
+    pub fn unregister_all_sets(&mut self) {
+        for set in self.registered_sets.iter() {
+            for con in set.values().iter() {
+                self.vars.remove(con.0);
+            }
+        }
+        self.registered_sets.clear();
     }
 
     #[inline]
@@ -623,7 +647,7 @@ impl ParseContext {
     }
 
     /// For internal use only!
-    pub(crate) fn register_const(&mut self, name: &String, value: Number) -> bool {
+    pub(crate) fn register_const(&mut self, name: &str, value: Number) -> bool {
         let name = name.to_lowercase();
         if let Some(x) = self.vars.get(name.as_str()) {
             if x.0 {
@@ -713,6 +737,37 @@ impl ParseContext {
         self.builtin_funcs.insert(name, func);
     }
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum ConstantSetKind {
+    Math,
+    Physics,
+}
+
+impl ConstantSetKind {
+
+    pub fn name(&self) -> &str {
+        match self {
+            ConstantSetKind::Math => "math",
+            ConstantSetKind::Physics => "physics",
+        }
+    }
+
+    pub fn values(&self) -> &Vec<(&'static str, Number)> {
+        match self {
+            ConstantSetKind::Math => SET_MATH.get_or_else(|| {
+                vec![("pi", Number::pi(FP256)), ("e", Number::e(FP256))]
+            }),
+            ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
+                vec![("c", Number::from_u64(FP256, 299792458), )]
+            }),
+        }
+    }
+
+}
+
+static SET_MATH: ConcurrentOnceCell<Vec<(&str, Number)>> = ConcurrentOnceCell::new();
+static SET_PHYS: ConcurrentOnceCell<Vec<(&str, Number)>> = ConcurrentOnceCell::new();
 
 #[derive(Debug, Clone)]
 pub enum Action {
