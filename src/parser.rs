@@ -522,10 +522,9 @@ impl ParseContext {
             funcs: Default::default(),
             rec_funcs: Default::default(),
             builtin_funcs: Default::default(),
-            registered_sets: vec![ConstantSetKind::Math],
+            registered_sets: vec![],
         };
-        register_const!(ret, "pi", Number::pi(FP256));
-        register_const!(ret, "e", Number::e(FP256));
+        ret.register_set(ConstantSetKind::Math);
         register_builtin_func!(ret, "abs", 1, |nums| nums[0].abs());
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
@@ -756,10 +755,16 @@ impl ConstantSetKind {
     pub fn values(&self) -> &Vec<(&'static str, Number)> {
         match self {
             ConstantSetKind::Math => SET_MATH.get_or_else(|| {
-                vec![("pi", Number::pi(FP256)), ("e", Number::e(FP256))]
+                vec![
+                    ("pi", Number::pi(FP256)),
+                    ("e", Number::e(FP256)),
+                    ]
             }),
             ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
-                vec![("c", Number::from_u64(FP256, 299792458), )]
+                vec![
+                    ("c", Number::from_u64(FP256, 299792458)),
+                    ("h", num_from_f64(6.6261 / (10.0 as f64).powi(34))),
+                    ]
             }),
         }
     }
