@@ -101,9 +101,9 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap(),
-                            Token::At(..)
+                            TokenKind::Comma | Token::At(..)
                                 | Token::BinOp(_, BinOpKind::Eq)
-                                | Token::UnaryOp(..)
+                                // | Token::UnaryOp(..) // FIXME: only for RHS unary ops
                         )
                     {
                         return diagnostic_builder!(
@@ -115,7 +115,7 @@ impl Lexer {
                 }
                 '(' => {
                     if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::At)
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
                     {
                         return diagnostic_builder!(
                             format!("`{}` at wrong location", curr),
@@ -141,7 +141,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::BinOp
+                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp
                         )
                     {
                         return diagnostic_builder!(
@@ -175,7 +175,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -189,7 +189,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
                         )
                     {
                         return diagnostic_builder!(
@@ -203,7 +203,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
                         )
                     {
                         return diagnostic_builder!(
@@ -217,7 +217,7 @@ impl Lexer {
                     if !tokens.is_empty()
                         && matches!(
                             tokens.last().unwrap().kind(),
-                            TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
+                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
                         )
                     {
                         return diagnostic_builder!(
@@ -271,24 +271,56 @@ impl Lexer {
                     }
                 }
                 '¹' => {
+                    if !tokens.is_empty()
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
+                    {
+                        return diagnostic_builder!(
+                            format!("`{}` at wrong location", curr),
+                            cursor
+                        );
+                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(1),
                     ));
                 }
                 '²' => {
+                    if !tokens.is_empty()
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
+                    {
+                        return diagnostic_builder!(
+                            format!("`{}` at wrong location", curr),
+                            cursor
+                        );
+                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(2),
                     ));
                 }
                 '³' => {
+                    if !tokens.is_empty()
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
+                    {
+                        return diagnostic_builder!(
+                            format!("`{}` at wrong location", curr),
+                            cursor
+                        );
+                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(3),
                     ));
                 }
                 '⁰' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹' => {
+                    if !tokens.is_empty()
+                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
+                    {
+                        return diagnostic_builder!(
+                            format!("`{}` at wrong location", curr),
+                            cursor
+                        );
+                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(curr as usize - '⁰' as usize),
