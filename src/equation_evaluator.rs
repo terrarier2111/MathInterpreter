@@ -18,9 +18,19 @@ pub(crate) fn eval(
 ) -> Result<Option<Number>, DiagnosticBuilder> {
         if entry.node.kind() != AstNodeKind::BinOp {
             let walker = EvalWalker { ctx: parse_ctx };
-            let ret = if let AstNode::PartialBinOp(node) = entry.node {
+            let ret = if let AstNode::PartialBinOp(node) = &entry.node {
                 if node.op == BinOpKind::Eq {
-                    return diagnostic_builder_spanned!("can't set a previous result equal to some new one - ANS doesn't work with `Eq`.", entry.span);
+                    if let AstNode::Lit(lit) = &node.rhs.node {
+                        if lit.kind == LiteralKind::CharSeq {
+                            if let Some(last) = parse_ctx.get_last().clone() {
+                                parse_ctx.register_var(&lit.content, last.clone(), entry.span)?;
+                                return Ok(Some(last));
+                            } else {
+                                return diagnostic_builder_spanned!(format!("there is no previous result to define `{}` with", &lit.content), entry.span);
+                            }
+                        }
+                    }
+                    return diagnostic_builder_spanned!("can't set a previous result equal to some new one that's not a variable name", entry.span);
                 }
                 if ans_mode == ANSMode::Never {
                     return diagnostic_builder_spanned!("ANS is disabled!", entry.span); // FIXME: improve this!
