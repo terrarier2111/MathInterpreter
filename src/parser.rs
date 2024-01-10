@@ -762,29 +762,14 @@ impl ConstantSetKind {
             }),
             ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
                 vec![
-                    ("c", Number::from_u64(FP256, 299792458)),
+                    ("c", Number::from_u64(FP256, 299792458)), // speed of light
                     ("h", num_from_f64(6.6261 / (10.0 as f64).powi(34))),
-                    ("me", num_from_f64(9.10939 / (10.0 as f64).powi(31)))
+                    ("me", num_from_f64(9.10939 / (10.0 as f64).powi(31))), // mass of an electron
+                    ("ev", num_from_f64(1.6022 / (10.0 as f64).powi(19))), // charge of an electron
                     ]
             }),
         }
     }
-
-    // e=h*c/lam
-    // lam=h*c/e
-    // Ey=E'y + E'e
-    // lam=h*c/Ey
-    // lam=h*c/(E'y + E'e)
-
-    // lam'=h*c/E'y
-    
-    // cos(v)=1-delta_lam/lamC
-    // lamC=h/(me*c)
-    // cos(v)=1-delta_lam*me*c/h
-    // delta_lam = lam'-lam
-    // delta_lam = h*c/E'y - h*c/(E'y + E'e)
-    // cos(v)=1-(h*c/E'y - h*c/(E'y + E'e))*me*c/h
-    // cos(v)=1-(c²*me/E'y - c²*me/(E'y + E'e))
 
 }
 

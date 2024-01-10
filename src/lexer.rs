@@ -220,10 +220,7 @@ fn check_prev_token(tokens: &Vec<Token>, curr: TokenKind, chr: char, cursor: usi
         TokenKind::Region => false,
         TokenKind::EOF => false,
     };
-    let mut ok = !needs_token;
-    if !tokens.is_empty() {
-        ok = check_token(tokens.last().unwrap(), curr, own_unary_arg_side_left);
-    }
+    let ok = tokens.last().map(|last| check_token(last, curr, own_unary_arg_side_left)).unwrap_or(!needs_token);
 
     if !ok {
         diagnostic_builder!(
