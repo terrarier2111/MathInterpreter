@@ -1,9 +1,10 @@
+use crate::parser::PResult;
 use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::shared::BinOpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::Token::EOF;
 use crate::shared::{
-    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace, UnaryOpKind,
+    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace, UnaryOpKind, ArgPosition,
 };
 use crate::span::{FixedTokenSpan, GenericSpan, Span};
 
@@ -15,7 +16,7 @@ impl Lexer {
         Self()
     }
 
-    pub fn lex(&self, input: String) -> Result<Vec<Token>, DiagnosticBuilder> {
+    pub fn lex(&self, input: String) -> PResult<Vec<Token>> {
         let mut tokens: Vec<Token> = vec![];
         let mut cursor = 0_usize;
         let mut diagnostics_builder = DiagnosticBuilder::new();
@@ -75,80 +76,25 @@ impl Lexer {
                     }));
                 }
                 '!' => {
-                    // FIXME: add checks like we do them everywhere else!
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Factorial,
                     ));
                 }
                 '@' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap(),
-                            Token::At(..)
-                                | Token::BinOp(_, BinOpKind::Eq)
-                                | Token::UnaryOp(..)
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::At(FixedTokenSpan::new(cursor)));
                 }
                 '=' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap(),
-                            TokenKind::Comma | Token::At(..)
-                                | Token::BinOp(_, BinOpKind::Eq)
-                                // | Token::UnaryOp(..) // FIXME: only for RHS unary ops
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), BinOpKind::Eq));
                 }
                 '(' => {
-                    if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::OpenParen(FixedTokenSpan::new(cursor)));
                 }
                 ')' => {
-                    let last = tokens.last().unwrap();
-                    if !tokens.is_empty()
-                        && matches!(last, Token::At(..) | Token::BinOp(_, BinOpKind::Eq))
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::ClosedParen(FixedTokenSpan::new(cursor)));
                 }
                 ' ' => {}
                 ',' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::Comma(FixedTokenSpan::new(cursor)));
                 }
                 '.' => {
@@ -172,59 +118,15 @@ impl Lexer {
                     );
                 }
                 '*' | '×' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Multiply));
                 }
                 '/' | ':' | '÷' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location.", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Divide));
                 }
                 '%' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp | TokenKind::UnaryOp
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Modulo));
                 }
                 '^' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::Comma | TokenKind::At | TokenKind::BinOp// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Pow));
                 }
                 '+' => {
@@ -242,17 +144,6 @@ impl Lexer {
                     }
                 }
                 '-' | '−' => {
-                    if !tokens.is_empty()
-                        && matches!(
-                            tokens.last().unwrap().kind(),
-                            TokenKind::At// | TokenKind::UnaryOp // FIXME: only lhs UnaryOps!
-                        )
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     let is_unary = if let Some(tty) = tokens.last() {
                         tty.kind() == TokenKind::BinOp || tty.kind() == TokenKind::OpenParen
                     } else {
@@ -271,56 +162,24 @@ impl Lexer {
                     }
                 }
                 '¹' => {
-                    if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(1),
                     ));
                 }
                 '²' => {
-                    if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(2),
                     ));
                 }
                 '³' => {
-                    if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(3),
                     ));
                 }
                 '⁰' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹' => {
-                    if !tokens.is_empty()
-                        && matches!(tokens.last().unwrap().kind(), TokenKind::Comma | TokenKind::At)
-                    {
-                        return diagnostic_builder!(
-                            format!("`{}` at wrong location", curr),
-                            cursor
-                        );
-                    }
                     curr_token = Some(Token::UnaryOp(
                         FixedTokenSpan::new(cursor),
                         UnaryOpKind::Exp(curr as usize - '⁰' as usize),
@@ -335,11 +194,101 @@ impl Lexer {
             }
 
             if let Some(token) = curr_token.take() {
+                check_prev_token(&tokens, token.kind(), curr, cursor, if let Token::UnaryOp(_, kind) = &token {
+                    kind.arg_position() == ArgPosition::LHS
+                } else {
+                    false
+                })?;
                 tokens.push(token);
             }
             cursor += 1;
         }
         tokens.push(EOF(FixedTokenSpan::new(chars.len())));
         Ok(tokens)
+    }
+}
+
+fn check_prev_token(tokens: &Vec<Token>, curr: TokenKind, chr: char, cursor: usize, own_unary_arg_side_left: bool) -> PResult<()> {
+    let needs_token = match curr {
+        TokenKind::OpenParen => false,
+        TokenKind::ClosedParen => true,
+        TokenKind::At => todo!(),
+        TokenKind::Comma => true,
+        TokenKind::BinOp => true,
+        TokenKind::UnaryOp => own_unary_arg_side_left,
+        TokenKind::Literal => false,
+        TokenKind::Region => false,
+        TokenKind::EOF => false,
+    };
+    let mut ok = !needs_token;
+    if !tokens.is_empty() {
+        ok = check_token(tokens.last().unwrap(), curr, own_unary_arg_side_left);
+    }
+
+    if !ok {
+        diagnostic_builder!(
+            format!("`{}` at wrong location", chr),
+            cursor
+        )  
+    } else {
+        Ok(())
+    }
+}
+
+fn check_token(prev: &Token, curr: TokenKind, own_unary_arg_side_left: bool) -> bool {
+    match curr {
+        TokenKind::OpenParen => {
+            let prev_kind = prev.kind();
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma
+        },
+        TokenKind::ClosedParen => {
+            let prev_kind = prev.kind();
+            if let Token::UnaryOp(_, kind) = prev {
+                return kind.arg_position() == ArgPosition::LHS;
+            }
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma && prev_kind != TokenKind::BinOp
+        },
+        TokenKind::At => todo!()/*{
+            let prev_kind = prev.kind();
+            if let Token::BinOp(_, kind) = prev {
+                return kind != BinOpKind::Eq;
+            }
+            prev_kind != TokenKind::At
+        }*/,
+        TokenKind::Comma => {
+            let prev_kind = prev.kind();
+            if let Token::UnaryOp(_, kind) = prev {
+                return kind.arg_position() == ArgPosition::LHS;
+            }
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma && prev_kind != TokenKind::BinOp
+        },
+        TokenKind::BinOp => {
+            let prev_kind = prev.kind();
+            if let Token::UnaryOp(_, kind) = prev {
+                return kind.arg_position() == ArgPosition::LHS;
+            }
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma && prev_kind != TokenKind::BinOp
+        },
+        TokenKind::UnaryOp => {
+            let prev_kind = prev.kind();
+            if own_unary_arg_side_left {
+                if let Token::UnaryOp(_, kind) = prev {
+                    return kind.arg_position() == ArgPosition::LHS;
+                }
+                if prev_kind == TokenKind::Comma || prev_kind == TokenKind::OpenParen || prev_kind == TokenKind::BinOp {
+                    return false;
+                }
+            }
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma
+        },
+        TokenKind::Literal => true,
+        TokenKind::Region => true,
+        TokenKind::EOF => {
+            let prev_kind = prev.kind();
+            if let Token::UnaryOp(_, kind) = prev {
+                return kind.arg_position() == ArgPosition::LHS;
+            }
+            prev_kind != TokenKind::At && prev_kind != TokenKind::Comma && prev_kind != TokenKind::BinOp
+        },
     }
 }

@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
             }
             _ => diagnostic_builder_spanned!(
                 format!(
-                    "expected primary, found {} of type {:?}",
+                    "expected expression, found {} of type {:?}",
                     self.curr.to_raw(),
                     self.curr.kind()
                 ),

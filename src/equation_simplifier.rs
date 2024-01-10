@@ -1078,34 +1078,34 @@ fn test() {
         Mode::Simplify,
     ));
     _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "32");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "32");
     _lib::eval(String::from("0+0*(8+3)-(8+3)*0"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "0");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "0");
     _lib::eval(String::from("x*0"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "0");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "0");
     _lib::eval(String::from("8*4+4*3*5*0+x"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "32+x");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "32+x");
     _lib::eval(String::from("1/4*8*x"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "2*x");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "2*x");
     _lib::eval(String::from("y*(4)+2"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "y*4+2");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "y*4+2");
     _lib::eval(String::from("0/(5*3+4)"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "0");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "0");
     _lib::eval(String::from("((5*3+x))"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "(15+x)");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "(15+x)");
     _lib::eval(String::from("8+((5*3+x))*2"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "8+(15+x)*2");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "8+(15+x)*2");
     _lib::eval(String::from("8+((5*3+x)*2)+(34*y)"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "8+((15+x)*2)+(34*y)");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "8+((15+x)*2)+(34*y)");
     _lib::eval(String::from("4+(((x+4)))+((4*7+7))*3"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "4+(x+4)+105");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "4+(x+4)+105");
     _lib::eval(String::from("3*2*a*4*1*b*5*a*5*b*b*a*3*b"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.get_input(), "1800*(a^3)*(b^4)");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "1800*(a^3)*(b^4)");
     _lib::eval(
         String::from("35+27+e+a+e+a+b+a+a+a+a+a+a+a+a"),
         &mut context,
     );
-    assert_eq!(context.parse_ctx.get_input(), "62+a*10+b+e*2");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "62+a*10+b+e*2");
     _lib::eval(String::from("25/a/a/b/a/b/a/b/b/4"), &mut context);
-    assert_eq!(context.parse_ctx.get_input(), "6.25/(a*4)/(b*4)");
+    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "6.25/(a*4)/(b*4)");
 }
