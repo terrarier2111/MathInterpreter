@@ -548,12 +548,15 @@ impl ParseContext {
     }
 
     pub fn register_set(&mut self, set: ConstantSetKind) {
+        self.registered_sets.push(set);
         for con in set.values().iter() {
             self.register_const(con.0, con.1.clone());
         }
     }
 
     pub fn unregister_set(&mut self, set: ConstantSetKind) {
+        let idx = self.registered_sets.iter().enumerate().find(|(idx, curr)| **curr == set).unwrap().0;
+        self.registered_sets.remove(idx);
         for con in set.values().iter() {
             self.vars.remove(con.0);
         }
@@ -766,6 +769,7 @@ impl ConstantSetKind {
                     ("h", num_from_f64(6.6261 / (10.0 as f64).powi(34))),
                     ("me", num_from_f64(9.10939 / (10.0 as f64).powi(31))), // mass of an electron
                     ("ev", num_from_f64(1.6022 / (10.0 as f64).powi(19))), // charge of an electron
+                    ("u", num_from_f64(1.660539 / (10.0 as f64).powi(27))), // unit of atom mass
                     ]
             }),
         }

@@ -214,7 +214,7 @@ fn check_prev_token(tokens: &Vec<Token>, curr: TokenKind, chr: char, cursor: usi
         TokenKind::ClosedParen => true,
         TokenKind::At => todo!(),
         TokenKind::Comma => true,
-        TokenKind::BinOp => true,
+        TokenKind::BinOp => false,
         TokenKind::UnaryOp => own_unary_arg_side_left,
         TokenKind::Literal => false,
         TokenKind::Region => false,
