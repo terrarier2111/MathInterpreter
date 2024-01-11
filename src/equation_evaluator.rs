@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail, UnaryOpNode, AstEntry};
-use crate::ast_walker::AstWalker;
+use crate::ast_walker::{AstWalker, AstWalkerMut};
 use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
@@ -13,7 +13,7 @@ use crate::_lib::ANSMode;
 pub(crate) fn eval(
     parse_ctx: &mut ParseContext,
     ans_mode: ANSMode,
-    entry: AstEntry,
+    mut entry: AstEntry,
     tail: Option<RecFuncTail>,
 ) -> Result<Option<Number>, DiagnosticBuilder> {
         if entry.node.kind() != AstNodeKind::BinOp {
@@ -78,6 +78,11 @@ pub(crate) fn eval(
             return ret;
         }
 
+    if let Some(last) = parse_ctx.get_last().as_ref() {
+        let op_replacer = PartialOpReplacer(last);
+        op_replacer.walk(&mut entry)?;
+    }
+
     // FIXME: get rid of all that cloning by consuming entry
     let (entry, action) = if let AstNode::BinOp(node) = entry.node {
         if node.op == BinOpKind::Eq {
@@ -122,25 +127,7 @@ pub(crate) fn eval(
                     AstNode::UnaryOp(_) => {
                         return diagnostic_builder_spanned!("expected a function signature or variable name, but got an unary operation", entry.span);
                     }
-                    AstNode::PartialBinOp(_) => {
-                        /*if ans_mode == ANSMode::Never {
-                            return diagnostic_builder!(parse_ctx.get_input().clone(), "expected a function signature or variable name, but got a partial binary operation");
-                        }
-                        match node.op {
-                            BinOpKind::Add => {
-                                if ans_mode != ANSMode::WhenImplicit {
-                                    parse_ctx
-                                }
-                            }
-                            BinOpKind::Subtract => {}
-                            BinOpKind::Divide => {}
-                            BinOpKind::Multiply => {}
-                            BinOpKind::Modulo => {}
-                            BinOpKind::Pow => {}
-                            BinOpKind::Eq => panic!(),
-                        }*/
-                        panic!()
-                    }
+                    AstNode::PartialBinOp(_) => unreachable!(),
                 },
             )
         } else {
@@ -280,5 +267,55 @@ impl AstWalker<Number> for EvalWalker<'_> {
     #[inline]
     fn get_input(&self) -> &String {
         self.ctx.get_input()
+    }
+}
+
+struct PartialOpReplacer<'a>(&'a Number);
+
+impl<'a> AstWalkerMut<()> for PartialOpReplacer<'a> {
+    fn walk_binop(&self, node: &mut BinOpNode, span: Span) -> PResult<()> {
+        self.walk(&mut node.lhs);
+        Ok(())
+    }
+
+    fn walk_lit(&self, node: &mut LiteralToken, span: Span) -> PResult<()> {
+        Ok(())
+    }
+
+    fn walk_unary_op(&self, node: &mut UnaryOpNode, span: Span) -> PResult<()> {
+        Ok(())
+    }
+
+    fn walk_maybe_func(&self, node: &mut MaybeFuncNode, span: Span) -> PResult<()> {
+        Ok(())
+    }
+
+    fn walk_func_call_or_func_def(&self, node: &mut FuncCallOrFuncDefNode, span: Span) -> PResult<()> {
+        Ok(())
+    }
+
+    fn walk(&self, entry: &mut AstEntry) -> PResult<()> {
+        match &mut entry.node {
+            AstNode::FuncCallOrFuncDef(_) => Ok(()),
+            AstNode::MaybeFunc(_) => Ok(()),
+            AstNode::Lit(_) => Ok(()),
+            AstNode::BinOp(node) => self.walk_binop(node, entry.span),
+            AstNode::UnaryOp(_) => Ok(()), // FIXME: should we support lhs arg unary ops for ANS?
+            AstNode::PartialBinOp(node) => {
+                if node.op == BinOpKind::Eq {
+                    return diagnostic_builder_spanned!("can't set a previous result equal to some new one that's not a variable name", entry.span);
+                }
+                entry.node = AstNode::BinOp(BinOpNode { op: node.op, lhs: Box::new(AstEntry {
+                    span: entry.span,
+                    node: AstNode::Lit(LiteralToken {
+                        span: entry.span,
+                        content: self.0.clone().to_string(),
+                        kind: LiteralKind::Number,
+                        trailing_space: TrailingSpace::No,
+                    }),
+                }), rhs: node.rhs.clone() });
+                Ok(())
+            },
+        }
     }
 }
