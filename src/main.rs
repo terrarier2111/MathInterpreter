@@ -22,7 +22,8 @@ mod sized_box;
 use std::{sync::Arc, ops::Deref, fmt::Display, error::Error};
 
 use __lib::EvalContext;
-use cli_core::{CommandBuilder, CommandImpl, UsageBuilder, CommandParam};
+use _lib::CircleUnit;
+use cli_core::{CommandBuilder, CommandImpl, UsageBuilder, CommandParam, EnumVal};
 use cmd_line::{CLIBuilder, CmdLineInterface, FallbackHandler};
 use parser::ConstantSetKind;
 
@@ -40,13 +41,14 @@ fn main() {
     }))).command(CommandBuilder::new("$set", CmdSet).params(UsageBuilder::new().required(CommandParam {
         name: "action".to_string(),
         ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["register", "unregister", "list"], ignore_case: true }),
-    }).required(CommandParam { name: "set".to_string(), ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["math", "physics"], ignore_case: true }) })))
+    }).required(CommandParam { name: "set".to_string(), ty: cli_core::CommandParamTy::Enum(cli_core::CmdParamEnumConstraints::IgnoreCase(&[("math", EnumVal::None), ("physics", EnumVal::None)])) })))
     .fallback(Box::new(CalcFallback)).build();
     let cli = CmdLineInterface::new(cli);
     let context = Arc::new(_lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
         Mode::Eval,
+        CircleUnit::Radians,
     )));
     let calc = Calculator {
         ctx: context,

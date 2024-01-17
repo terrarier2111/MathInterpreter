@@ -139,6 +139,10 @@ impl<CTX> Window<CTX> {
                     self.println(&format!("An error occoured while executing the command \"{}\": {}", name, error));
                     Some(Ok(false))
                 },
+                crate::cli_core::InputError::ParamInvalidError(error) => {
+                    self.println(&format!("Wrong syntax: {}", error));
+                    Some(Ok(false))
+                },
             },
         }
     }
