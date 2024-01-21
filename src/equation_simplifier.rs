@@ -1,3 +1,4 @@
+use crate::_lib::CircleUnit;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
     BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
@@ -1076,6 +1077,7 @@ fn test() {
         DiagnosticsConfig::default(),
         ANSMode::Never,
         Mode::Simplify,
+        CircleUnit::Radians,
     ));
     _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.read().unwrap().get_input(), "32");

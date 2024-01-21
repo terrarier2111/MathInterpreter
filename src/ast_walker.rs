@@ -26,8 +26,6 @@ pub trait AstWalker<T> {
             AstNode::PartialBinOp(_) => diagnostic_builder!("found a `PartialBinOp` midst the Ast."), // FIXME: add span by using `AstEntry`!
         }
     }
-
-    fn get_input(&self) -> &String;
 }
 
 pub trait AstWalkerMut<T> {
@@ -80,8 +78,6 @@ pub trait AstWalkerConsuming<T> {
 
 pub trait LitWalker {
     fn walk_lit(&self, node: &LiteralToken, span: Span) -> Result<(), DiagnosticBuilder>;
-
-    fn get_input(&self) -> &String;
 }
 
 impl<T: LitWalker> AstWalker<()> for T {
@@ -116,11 +112,6 @@ impl<T: LitWalker> AstWalker<()> for T {
             self.walk(param)?;
         }
         Ok(())
-    }
-
-    #[inline]
-    fn get_input(&self) -> &String {
-        LitWalker::get_input(self)
     }
 }
 

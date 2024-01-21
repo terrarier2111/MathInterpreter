@@ -19,7 +19,7 @@ mod cmd_line;
 mod conc_once_cell;
 mod sized_box;
 
-use std::{sync::Arc, ops::Deref, fmt::Display, error::Error};
+use std::{sync::{Arc, Mutex}, ops::Deref, fmt::Display, error::Error};
 
 use __lib::EvalContext;
 use _lib::CircleUnit;
@@ -29,9 +29,7 @@ use parser::ConstantSetKind;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 
-// TODO: add ans support to new parser
 // TODO: support 2 types of numbers (via an enum): whole numbers and floating point numbers in order to avoid inaccurracies when doing calculations
-// TODO: do a better job at preserving spans until the end
 
 fn main() {
     let cli = CLIBuilder::new().prompt("Please insert what is to be evaluated: ".to_string())
@@ -47,12 +45,12 @@ fn main() {
     let context = Arc::new(_lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
-        Mode::Eval,
         CircleUnit::Radians,
     )));
     let calc = Calculator {
         ctx: context,
         cli,
+        mode: Mutex::new(Mode::Eval),
     };
     loop {
         calc.cli.await_input(&calc);
@@ -62,6 +60,7 @@ fn main() {
 pub struct Calculator {
     pub ctx: Arc<EvalContext>,
     pub cli: CmdLineInterface<Calculator>,
+    mode: Mutex<Mode>,
 }
 
 struct CmdMode;
@@ -76,9 +75,7 @@ impl CommandImpl for CmdMode {
             "solve" => Ok(Mode::Solve),
             _ => Err(ModeDoesNotExistError(input[0].to_string())),
         }?;
-        let mut cfg = ctx.ctx.config.load().deref().deref().clone();
-        cfg.mode = mode;
-        ctx.ctx.config.store(Arc::new(cfg));
+        *ctx.mode.lock().unwrap() = mode;
         ctx.cli.println(format!("Switched to {:?} mode", mode).as_str());
         Ok(())
     }

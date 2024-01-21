@@ -263,11 +263,6 @@ impl AstWalker<Number> for EvalWalker<'_> {
             )
         }
     }
-
-    #[inline]
-    fn get_input(&self) -> &String {
-        self.ctx.get_input()
-    }
 }
 
 struct PartialOpReplacer<'a>(&'a Number);

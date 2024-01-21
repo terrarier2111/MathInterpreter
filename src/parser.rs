@@ -846,11 +846,6 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
         Ok(())
     }
 
-    #[inline]
-    fn get_input(&self) -> &String {
-        self.parse_ctx.get_input()
-    }
-
     fn walk_binop(&self, node: &BinOpNode, span: Span) -> PResult<()> {
         self.walk(&node.lhs)?;
         self.walk(&node.rhs)
@@ -925,11 +920,6 @@ impl LitWalker for RecFunctionInitValidator<'_> {
             );
         }
         Ok(())
-    }
-
-    #[inline]
-    fn get_input(&self) -> &String {
-        self.parse_ctx.get_input()
     }
 }
 
