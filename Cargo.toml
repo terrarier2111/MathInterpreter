@@ -16,6 +16,6 @@ colored = "2.0.0"
 statrs = "0.16.0"
 crossterm = "0.27.0"
 anyhow = "1.0.79"
-strip-ansi-escapes = "0.2.0"
+clitty = { git = "https://github.com/terrarier2111/CLItty" }
 swap-arc = "0.1.1"
 # rustc_apfloat = "0.2.0+llvm-462a31f5a5ab"

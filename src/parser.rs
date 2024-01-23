@@ -991,11 +991,11 @@ impl Function {
 pub(crate) struct BuiltInFunction {
     name: String,
     args: Vec<(Option<(Number, bool)>, Option<(Number, bool)>)>,
-    inner: Box<dyn Fn(Vec<Number>) -> Number>,
+    inner: Box<dyn Fn(Vec<Number>) -> Number + Send + Sync>,
 }
 
 impl BuiltInFunction {
-    pub fn new(name: String, args: &[(Option<(f64, bool)>, Option<(f64, bool)>)], inner: Box<dyn Fn(Vec<Number>) -> Number>) -> Self {
+    pub fn new(name: String, args: &[(Option<(f64, bool)>, Option<(f64, bool)>)], inner: Box<dyn Fn(Vec<Number>) -> Number + Send + Sync>) -> Self {
         Self {
             name,
             args: args.iter().map(|arg| (arg.0.map(|(arg, eq)| (num_from_f64(arg), eq)), arg.1.map(|(arg, eq)| (num_from_f64(arg), eq)))).collect::<Vec<_>>(),

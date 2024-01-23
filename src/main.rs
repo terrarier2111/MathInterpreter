@@ -14,8 +14,6 @@ mod shared;
 mod span;
 mod token_stream;
 mod utils;
-mod cli_core;
-mod cmd_line;
 mod conc_once_cell;
 mod sized_box;
 
@@ -23,8 +21,7 @@ use std::{sync::{Arc, Mutex}, ops::Deref, fmt::Display, error::Error};
 
 use __lib::EvalContext;
 use _lib::CircleUnit;
-use cli_core::{CommandBuilder, CommandImpl, UsageBuilder, CommandParam, EnumVal};
-use cmd_line::{CLIBuilder, CmdLineInterface, FallbackHandler};
+use clitty::{core::{CmdParamEnumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder}, ui::{CLIBuilder, CmdLineInterface, FallbackHandler, Window}};
 use parser::ConstantSetKind;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
@@ -34,12 +31,12 @@ use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 fn main() {
     let cli = CLIBuilder::new().prompt("Please insert what is to be evaluated: ".to_string())
     .command(CommandBuilder::new("$mode", CmdMode).params(UsageBuilder::new().required(CommandParam {
-        name: "mode".to_string(),
-        ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["simplify", "eval", "solve"], ignore_case: true }),
+        name: "mode",
+        ty: CommandParamTy::String(CmdParamStrConstraints::Variants { variants: &["simplify", "eval", "solve"], ignore_case: true }),
     }))).command(CommandBuilder::new("$set", CmdSet).params(UsageBuilder::new().required(CommandParam {
-        name: "action".to_string(),
-        ty: cli_core::CommandParamTy::String(cli_core::CmdParamStrConstraints::Variants { variants: &["register", "unregister", "list"], ignore_case: true }),
-    }).required(CommandParam { name: "set".to_string(), ty: cli_core::CommandParamTy::Enum(cli_core::CmdParamEnumConstraints::IgnoreCase(&[("math", EnumVal::None), ("physics", EnumVal::None)])) })))
+        name: "action",
+        ty: CommandParamTy::String(CmdParamStrConstraints::Variants { variants: &["register", "unregister", "list"], ignore_case: true }),
+    }).required(CommandParam { name: "set", ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(&[("math", EnumVal::None), ("physics", EnumVal::None)])) })))
     .fallback(Box::new(CalcFallback)).build();
     let cli = CmdLineInterface::new(cli);
     let context = Arc::new(_lib::new_eval_ctx(Config::new(
@@ -189,7 +186,7 @@ impl Display for SetNotRegisteredError {
 struct CalcFallback;
 
 impl FallbackHandler<Calculator> for CalcFallback {
-    fn handle(&self, input: String, window: &cmd_line::Window<Calculator>, ctx: &Calculator) -> anyhow::Result<bool> {
+    fn handle(&self, input: String, window: &Window<Calculator>, ctx: &Calculator) -> anyhow::Result<bool> {
         let result = _lib::eval(input, &ctx.ctx);
         match result.0 {
             Ok(val) => {

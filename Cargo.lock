@@ -8,10 +8,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arpfloat",
+ "clitty",
  "colored",
  "crossterm",
  "statrs",
- "strip-ansi-escapes",
  "swap-arc",
 ]
 
@@ -76,6 +76,16 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "clitty"
+version = "0.1.0"
+source = "git+https://github.com/terrarier2111/CLItty#258199ebcb1884a930a3f73400ced8ae1d8950e1"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "strip-ansi-escapes",
+]
 
 [[package]]
 name = "colored"
