@@ -1,5 +1,6 @@
 use arpfloat::{FP256, Float};
 
+use crate::_lib::CircleUnit;
 use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode, AstEntry};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
 use crate::conc_once_cell::ConcurrentOnceCell;
@@ -1221,7 +1222,7 @@ fn test_simple_ops() {
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
-        Mode::Eval,
+        CircleUnit::Degrees,
     ));
     let result = _lib::eval(String::from("8*4+6*0+4*3*5*0+3*0+0*3*9"), &mut context)
         .unwrap()
@@ -1260,7 +1261,7 @@ fn test_functions() {
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
-        Mode::Eval,
+        CircleUnit::Degrees,
     ));
     _lib::eval(String::from("a(x)=(x/2)+3"), &mut context).unwrap();
     let result = _lib::eval(String::from("a(-12.4)"), &mut context)
@@ -1290,7 +1291,7 @@ fn test_ans() {
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
-        Mode::Eval,
+        CircleUnit::Degrees,
     ));
     let result = _lib::eval(String::from("(-0.1)*2"), &mut context)
         .unwrap()
@@ -1311,7 +1312,7 @@ fn test_vars() {
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
-        Mode::Eval,
+        CircleUnit::Degrees,
     ));
     let result = _lib::eval(String::from("k = 34"), &mut context).unwrap().1;
     assert!(result.is_none());
