@@ -10,15 +10,11 @@ pub struct DiagnosticBuilder {
 
 impl DiagnosticBuilder {
     pub fn new() -> Self {
-        Self {
-            items: vec![],
-        }
+        Self { items: vec![] }
     }
 
     pub(crate) fn from_err_with_span(error: String, span: Span) -> Self {
-        let mut ret = Self {
-            items: vec![],
-        };
+        let mut ret = Self { items: vec![] };
         ret.error_spanned(error, span);
         ret
     }
@@ -97,7 +93,7 @@ impl DiagnosticItem {
         match self {
             DiagnosticItem::Error(str, span) => {
                 if !span.is_none() {
-                        DiagnosticBuilder::build_span_string(span).red().to_string()
+                    DiagnosticBuilder::build_span_string(span).red().to_string()
                         + "\n"
                         + &" ".repeat(span.start)
                         + &str.red().to_string()
@@ -108,9 +104,9 @@ impl DiagnosticItem {
             }
             DiagnosticItem::Warn(str, span) => {
                 if !span.is_none() {
-                        DiagnosticBuilder::build_span_string(span)
-                            .yellow()
-                            .to_string()
+                    DiagnosticBuilder::build_span_string(span)
+                        .yellow()
+                        .to_string()
                         + "\n"
                         + &" ".repeat(span.start)
                         + &str.yellow().to_string()
@@ -121,7 +117,7 @@ impl DiagnosticItem {
             }
             DiagnosticItem::Suggestion(str, span) => {
                 if !span.is_none() {
-                        DiagnosticBuilder::build_span_string(span)
+                    DiagnosticBuilder::build_span_string(span)
                         + "\n"
                         + &" ".repeat(span.start)
                         + str
@@ -138,9 +134,7 @@ impl DiagnosticItem {
 #[macro_export]
 macro_rules! diagnostic_builder {
     ($error:literal) => {
-        Err(DiagnosticBuilder::from_err(
-            $error.to_string(),
-        ))
+        Err(DiagnosticBuilder::from_err($error.to_string()))
     };
     ($error:expr) => {
         Err(DiagnosticBuilder::from_err($error))
@@ -168,8 +162,6 @@ macro_rules! diagnostic_builder_spanned {
         ))
     };
     ($error:expr, $sp:expr) => {
-        Err(DiagnosticBuilder::from_err_with_span(
-            $error, $sp,
-        ))
+        Err(DiagnosticBuilder::from_err_with_span($error, $sp))
     };
 }

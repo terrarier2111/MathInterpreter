@@ -7,7 +7,6 @@ pub struct ConcurrentOnceCell<T> {
 }
 
 impl<T> ConcurrentOnceCell<T> {
-
     pub const fn new() -> Self {
         Self {
             ptr: AtomicPtr::new(null_mut()),
@@ -21,14 +20,15 @@ impl<T> ConcurrentOnceCell<T> {
     pub fn try_init(&self, val: T) -> Result<(), T> {
         let mut sized = crate::sized_box::SizedBox::new(val);
         let ptr = sized.as_mut() as *mut T;
-        match self.ptr.compare_exchange(null_mut(), ptr, Ordering::Release, Ordering::Relaxed) {
+        match self
+            .ptr
+            .compare_exchange(null_mut(), ptr, Ordering::Release, Ordering::Relaxed)
+        {
             Ok(_) => {
                 mem::forget(sized);
                 Ok(())
             }
-            Err(_) => {
-                Err(sized.into_inner())
-            }
+            Err(_) => Err(sized.into_inner()),
         }
     }
 
@@ -42,14 +42,15 @@ impl<T> ConcurrentOnceCell<T> {
             self.get().unwrap()
         })
     }
-
 }
 
 impl<T> Drop for ConcurrentOnceCell<T> {
     fn drop(&mut self) {
         let ptr = *self.ptr.get_mut();
         if !ptr.is_null() {
-            unsafe { ptr.drop_in_place(); }
+            unsafe {
+                ptr.drop_in_place();
+            }
         }
     }
 }

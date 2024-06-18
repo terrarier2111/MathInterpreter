@@ -1,12 +1,12 @@
-use crate::parser::PResult;
-use crate::{diagnostic_builder, diagnostic_builder_spanned};
 use crate::error::DiagnosticBuilder;
+use crate::parser::PResult;
 use crate::shared::BinOpKind::{Divide, Modulo, Multiply, Pow};
 use crate::shared::Token::EOF;
 use crate::shared::{
-    BinOpKind, LiteralKind, LiteralToken, SignKind, Token, TokenKind, TrailingSpace, UnaryOpKind, ArgPosition,
+    ArgPosition, BinOpKind, LiteralKind, LiteralToken, Token, TokenKind, TrailingSpace, UnaryOpKind,
 };
-use crate::span::{FixedTokenSpan, GenericSpan, Span};
+use crate::span::{FixedTokenSpan, Span};
+use crate::{diagnostic_builder, diagnostic_builder_spanned};
 
 pub(crate) struct Lexer();
 
@@ -19,7 +19,7 @@ impl Lexer {
     pub fn lex(&self, input: String) -> PResult<Vec<Token>> {
         let mut tokens: Vec<Token> = vec![];
         let mut cursor = 0_usize;
-        let mut diagnostics_builder = DiagnosticBuilder::new();
+        let diagnostics_builder = DiagnosticBuilder::new();
         let chars = input.chars().collect::<Vec<_>>();
         ///
         ///
@@ -99,23 +99,27 @@ impl Lexer {
                 }
                 '.' => {
                     if !tokens.is_empty() {
-                        if let Token::Literal(LiteralToken { content, trailing_space, span, .. }) = tokens.last().unwrap() {
-                            if ('0'..'9').contains(&content.chars().last().unwrap()) && *trailing_space != TrailingSpace::Yes {
+                        if let Token::Literal(LiteralToken {
+                            content,
+                            trailing_space,
+                            span,
+                            ..
+                        }) = tokens.last().unwrap()
+                        {
+                            if ('0'..'9').contains(&content.chars().last().unwrap())
+                                && *trailing_space != TrailingSpace::Yes
+                            {
                                 return diagnostic_builder_spanned!(
                                     format!("`{}{}` is ambiguous", content, curr),
                                     {
-                                        let mut new_span = span.clone();
-                                        new_span.expand_hi();
-                                        new_span
+                                        let new_span = span.clone();
+                                        new_span.expand_hi()
                                     }
                                 );
                             }
                         }
                     }
-                    return diagnostic_builder!(
-                        format!("`{}` at wrong location", curr),
-                        cursor
-                    );
+                    return diagnostic_builder!(format!("`{}` at wrong location", curr), cursor);
                 }
                 '*' | '×' => {
                     curr_token = Some(Token::BinOp(FixedTokenSpan::new(cursor), Multiply));
@@ -136,8 +140,10 @@ impl Lexer {
                         true
                     };
                     if is_unary {
-                        curr_token =
-                            Some(Token::UnaryOp(FixedTokenSpan::new(cursor), UnaryOpKind::Pos));
+                        curr_token = Some(Token::UnaryOp(
+                            FixedTokenSpan::new(cursor),
+                            UnaryOpKind::Pos,
+                        ));
                     } else {
                         curr_token =
                             Some(Token::BinOp(FixedTokenSpan::new(cursor), BinOpKind::Add));
@@ -186,19 +192,22 @@ impl Lexer {
                     ));
                 }
                 _ => {
-                    return diagnostic_builder!(
-                        format!("`{}` is not a known token", curr),
-                        cursor
-                    );
+                    return diagnostic_builder!(format!("`{}` is not a known token", curr), cursor);
                 }
             }
 
             if let Some(token) = curr_token.take() {
-                check_prev_token(&tokens, token.kind(), curr, cursor, if let Token::UnaryOp(_, kind) = &token {
-                    kind.arg_position() == ArgPosition::LHS
-                } else {
-                    false
-                })?;
+                check_prev_token(
+                    &tokens,
+                    token.kind(),
+                    curr,
+                    cursor,
+                    if let Token::UnaryOp(_, kind) = &token {
+                        kind.arg_position() == ArgPosition::LHS
+                    } else {
+                        false
+                    },
+                )?;
                 tokens.push(token);
             }
             cursor += 1;
@@ -208,7 +217,13 @@ impl Lexer {
     }
 }
 
-fn check_prev_token(tokens: &Vec<Token>, curr: TokenKind, chr: char, cursor: usize, own_unary_arg_side_left: bool) -> PResult<()> {
+fn check_prev_token(
+    tokens: &Vec<Token>,
+    curr: TokenKind,
+    chr: char,
+    cursor: usize,
+    own_unary_arg_side_left: bool,
+) -> PResult<()> {
     let needs_token = match curr {
         TokenKind::OpenParen => false,
         TokenKind::ClosedParen => true,
@@ -220,13 +235,13 @@ fn check_prev_token(tokens: &Vec<Token>, curr: TokenKind, chr: char, cursor: usi
         TokenKind::Region => false,
         TokenKind::EOF => false,
     };
-    let ok = tokens.last().map(|last| check_token(last, curr, own_unary_arg_side_left)).unwrap_or(!needs_token);
+    let ok = tokens
+        .last()
+        .map(|last| check_token(last, curr, own_unary_arg_side_left))
+        .unwrap_or(!needs_token);
 
     if !ok {
-        diagnostic_builder!(
-            format!("`{}` at wrong location", chr),
-            cursor
-        )  
+        diagnostic_builder!(format!("`{}` at wrong location", chr), cursor)
     } else {
         Ok(())
     }

@@ -1,9 +1,9 @@
-use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode, AstEntry};
-use crate::span::Span;
-use crate::{diagnostic_builder, diagnostic_builder_spanned};
+use crate::ast::{AstEntry, AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, UnaryOpNode};
+use crate::diagnostic_builder;
 use crate::error::DiagnosticBuilder;
 use crate::parser::PResult;
 use crate::shared::LiteralToken;
+use crate::span::Span;
 
 pub trait AstWalker<T> {
     fn walk_binop(&self, node: &BinOpNode, span: Span) -> PResult<T>;
@@ -23,7 +23,9 @@ pub trait AstWalker<T> {
             AstNode::Lit(node) => self.walk_lit(node, entry.span),
             AstNode::BinOp(node) => self.walk_binop(node, entry.span),
             AstNode::UnaryOp(node) => self.walk_unary_op(node, entry.span),
-            AstNode::PartialBinOp(_) => diagnostic_builder!("found a `PartialBinOp` midst the Ast."), // FIXME: add span by using `AstEntry`!
+            AstNode::PartialBinOp(_) => {
+                diagnostic_builder!("found a `PartialBinOp` midst the Ast.")
+            } // FIXME: add span by using `AstEntry`!
         }
     }
 }
@@ -37,7 +39,11 @@ pub trait AstWalkerMut<T> {
 
     fn walk_maybe_func(&self, node: &mut MaybeFuncNode, span: Span) -> PResult<T>;
 
-    fn walk_func_call_or_func_def(&self, node: &mut FuncCallOrFuncDefNode, span: Span) -> PResult<T>;
+    fn walk_func_call_or_func_def(
+        &self,
+        node: &mut FuncCallOrFuncDefNode,
+        span: Span,
+    ) -> PResult<T>;
 
     fn walk(&self, entry: &mut AstEntry) -> PResult<T> {
         let span = entry.span;
@@ -134,7 +140,11 @@ impl<T: LitWalkerMut> AstWalkerMut<()> for T {
         Ok(())
     }
 
-    fn walk_maybe_func(&self, node: &mut MaybeFuncNode, span: Span) -> Result<(), DiagnosticBuilder> {
+    fn walk_maybe_func(
+        &self,
+        node: &mut MaybeFuncNode,
+        span: Span,
+    ) -> Result<(), DiagnosticBuilder> {
         if let Some(param) = &mut node.param {
             self.walk(&mut *param)
         } else {

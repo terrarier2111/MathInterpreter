@@ -33,37 +33,52 @@ impl Span {
     }
 
     #[must_use]
-    pub fn shrink_hi(mut self) -> Result<Self, ShrinkHiError> {
+    pub fn shrink_hi(self) -> Result<Self, ShrinkHiError> {
         if self.start == self.end {
             return Err(ShrinkHiError(self.start));
         }
-        Ok(Self { start: self.start, end: self.end - 1 })
+        Ok(Self {
+            start: self.start,
+            end: self.end - 1,
+        })
     }
 
     #[must_use]
-    pub fn shrink_lo(mut self) -> Result<Self, ShrinkLoError> {
+    pub fn shrink_lo(self) -> Result<Self, ShrinkLoError> {
         if self.start == self.end {
             return Err(ShrinkLoError(self.end));
         }
-        Ok(Self { start: self.start + 1, end: self.end })
+        Ok(Self {
+            start: self.start + 1,
+            end: self.end,
+        })
     }
 
     #[must_use]
-    pub fn expand_hi(mut self) -> Self {
-        Self { start: self.start, end: self.end + 1 }
+    pub fn expand_hi(self) -> Self {
+        Self {
+            start: self.start,
+            end: self.end + 1,
+        }
     }
 
     #[must_use]
-    pub fn expand_lo(mut self) -> Result<Self, ExpandLoError> {
+    pub fn expand_lo(self) -> Result<Self, ExpandLoError> {
         if self.start == 0 {
             return Err(ExpandLoError);
         }
-        Ok(Self { start: self.start - 1, end: self.end })
+        Ok(Self {
+            start: self.start - 1,
+            end: self.end,
+        })
     }
 
     #[must_use]
-    pub fn merge_with(mut self, other: Span) -> Self {
-        Self { start: self.start.min(other.start), end: self.end.max(other.end) }
+    pub fn merge_with(self, other: Span) -> Self {
+        Self {
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
     }
 
     pub fn is_none(&self) -> bool {

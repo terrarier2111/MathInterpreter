@@ -1,14 +1,13 @@
-use crate::_lib::CircleUnit;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
-    TrailingSpace, num_from_f64,
+    num_from_f64, BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind,
+    TokenStream, TrailingSpace,
 };
 use crate::span::{FixedTokenSpan, GenericSpan, Span};
-use crate::{_lib, diagnostic_builder, parser, shared, ANSMode, Config, DiagnosticsConfig, Mode};
+use crate::{diagnostic_builder, shared};
 use arpfloat::FP256;
 use std::collections::HashMap;
-use std::ops::{Neg, Range};
+use std::ops::Range;
 
 // const SIMPLIFICATION_PASSES: [Box<dyn SimplificationPass>; 2] = [Box::new(ConstOpSimplificationPass {}), Box::new(NoopSimplificationPass {})];
 
@@ -465,7 +464,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                 if let Token::Literal(lit_tok) = token {
                     match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
+                            let num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
                             num_part = num_part * num;
                         }
                         LiteralKind::CharSeq => {
@@ -639,7 +638,7 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                 if let Token::Literal(lit_tok) = &token.0 {
                     match lit_tok.kind {
                         LiteralKind::Number => {
-                            let mut num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
+                            let num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
                             num_part = num_part + num;
                         }
                         LiteralKind::CharSeq => {
@@ -873,9 +872,7 @@ pub(crate) fn parse_braced_call_region(
         }
     }
     if open != 0 {
-        return diagnostic_builder!(
-            "The brace count during region parsing didn't match!"
-        );
+        return diagnostic_builder!("The brace count during region parsing didn't match!");
     }
     Ok(Region::new(start, end, tokens))
 }
@@ -908,12 +905,10 @@ pub(crate) fn parse_braced_call_region_backwards(
         }
     }
     if closed != 0 {
-        return diagnostic_builder!(
-            format!(
-                "The brace count during region parsing didn't match! {}",
-                closed
-            )
-        );
+        return diagnostic_builder!(format!(
+            "The brace count during region parsing didn't match! {}",
+            closed
+        ));
     }
     Ok(Region::new(end, start, tokens))
 }
@@ -1097,16 +1092,28 @@ fn test() {
     _lib::simplify(String::from("8+((5*3+x))*2"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.read().unwrap().get_input(), "8+(15+x)*2");
     _lib::simplify(String::from("8+((5*3+x)*2)+(34*y)"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "8+((15+x)*2)+(34*y)");
+    assert_eq!(
+        context.parse_ctx.read().unwrap().get_input(),
+        "8+((15+x)*2)+(34*y)"
+    );
     _lib::simplify(String::from("4+(((x+4)))+((4*7+7))*3"), &mut context).unwrap();
     assert_eq!(context.parse_ctx.read().unwrap().get_input(), "4+(x+4)+105");
     _lib::simplify(String::from("3*2*a*4*1*b*5*a*5*b*b*a*3*b"), &mut context).unwrap();
-    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "1800*(a^3)*(b^4)");
+    assert_eq!(
+        context.parse_ctx.read().unwrap().get_input(),
+        "1800*(a^3)*(b^4)"
+    );
     _lib::simplify(
         String::from("35+27+e+a+e+a+b+a+a+a+a+a+a+a+a"),
         &mut context,
     );
-    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "62+a*10+b+e*2");
+    assert_eq!(
+        context.parse_ctx.read().unwrap().get_input(),
+        "62+a*10+b+e*2"
+    );
     _lib::simplify(String::from("25/a/a/b/a/b/a/b/b/4"), &mut context);
-    assert_eq!(context.parse_ctx.read().unwrap().get_input(), "6.25/(a*4)/(b*4)");
+    assert_eq!(
+        context.parse_ctx.read().unwrap().get_input(),
+        "6.25/(a*4)/(b*4)"
+    );
 }

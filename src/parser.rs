@@ -1,25 +1,25 @@
-use arpfloat::{FP256, Float};
+use arpfloat::FP256;
 
-use crate::_lib::CircleUnit;
-use crate::ast::{AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode, RecFuncTail, UnaryOpNode, AstEntry};
+use crate::ast::{
+    AstEntry, AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode,
+    RecFuncTail, UnaryOpNode,
+};
 use crate::ast_walker::{AstWalker, AstWalkerMut, LitWalker, LitWalkerMut};
 use crate::conc_once_cell::ConcurrentOnceCell;
-use crate::equation_evaluator::{EvalWalker, resolve_simple};
+use crate::equation_evaluator::{resolve_simple, EvalWalker};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    ArgPosition, Associativity, BinOpKind, ImplicitlyMultiply, LiteralKind,
-    LiteralToken, Number, SignKind, Token, TokenKind, TrailingSpace, num_from_f64,
+    num_from_f64, ArgPosition, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken, Number,
+    Token, TokenKind, TrailingSpace,
 };
 use crate::span::{FixedTokenSpan, Span};
 use crate::token_stream::TokenStream;
 use crate::{
-    _lib, diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
-    register_builtin_func, register_const, ANSMode, Config, DiagnosticsConfig, Mode,
+    diagnostic_builder, diagnostic_builder_spanned, equation_evaluator, pluralize,
+    register_builtin_func, ANSMode, Mode,
 };
 use std::collections::HashMap;
-use std::ops::Neg;
-use std::rc::Rc;
 
 const NONE: usize = usize::MAX;
 
@@ -91,12 +91,22 @@ impl<'a> Parser<'a> {
         while !self.eat(TokenKind::EOF) {
             let curr_token_mult = if let Some(lit) = self.parse_lit() {
                 if self.parse_ctx.exists_fn(&lit.content)
-                    || self.parse_ctx.exists_builtin_func(&lit.content) || func.as_ref().map(|node| match &node.node {
-                    AstNode::FuncCallOrFuncDef(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
-                    AstNode::MaybeFunc(func) => !self.parse_ctx.vars.contains_key(&func.name) && &func.name == &lit.content,
-                    // AstNode::RecFuncDef(_) => {}
-                    _ => false,
-                }).unwrap_or(false)
+                    || self.parse_ctx.exists_builtin_func(&lit.content)
+                    || func
+                        .as_ref()
+                        .map(|node| match &node.node {
+                            AstNode::FuncCallOrFuncDef(func) => {
+                                !self.parse_ctx.vars.contains_key(&func.name)
+                                    && &func.name == &lit.content
+                            }
+                            AstNode::MaybeFunc(func) => {
+                                !self.parse_ctx.vars.contains_key(&func.name)
+                                    && &func.name == &lit.content
+                            }
+                            // AstNode::RecFuncDef(_) => {}
+                            _ => false,
+                        })
+                        .unwrap_or(false)
                 {
                     ImplicitlyMultiply::Never
                 } else {
@@ -139,12 +149,13 @@ impl<'a> Parser<'a> {
 
         match mode {
             Mode::Eval => {
-                let val = equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr, tail);
+                let val =
+                    equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr, tail);
                 match val {
                     Ok(val) => {
                         self.parse_ctx.set_last(val.clone());
                         ParseResult::new_ok(val)
-                    },
+                    }
                     Err(err) => ParseResult::new_err(err),
                 }
             }
@@ -202,7 +213,13 @@ impl<'a> Parser<'a> {
 
                 if params.len() > 1 {
                     Ok(Some(AstEntry {
-                        span: Span::multi_token(lit.span.start, params.last().map(|p| p.span.end + 1).unwrap_or(lit.span.end + 2)),
+                        span: Span::multi_token(
+                            lit.span.start,
+                            params
+                                .last()
+                                .map(|p| p.span.end + 1)
+                                .unwrap_or(lit.span.end + 2),
+                        ),
                         node: AstNode::FuncCallOrFuncDef(FuncCallOrFuncDefNode {
                             name: lit.content,
                             params: params.into_boxed_slice(),
@@ -211,7 +228,13 @@ impl<'a> Parser<'a> {
                 } else {
                     // this may still be an implicit multiplication
                     Ok(Some(AstEntry {
-                        span: Span::multi_token(lit.span.start, params.last().map(|p| p.span.end + 1).unwrap_or(lit.span.end + 2)),
+                        span: Span::multi_token(
+                            lit.span.start,
+                            params
+                                .last()
+                                .map(|p| p.span.end + 1)
+                                .unwrap_or(lit.span.end + 2),
+                        ),
                         node: AstNode::MaybeFunc(MaybeFuncNode {
                             name: lit.content,
                             param: params.pop().map(|x| Box::new(x)),
@@ -237,9 +260,13 @@ impl<'a> Parser<'a> {
 
         if idx.is_none() {
             if let Some(token) = self.token_stream.get_next() {
-                return diagnostic_builder_spanned!("expected natural number after `@`", token.span()); // FIXME: improve this error message!
+                return diagnostic_builder_spanned!(
+                    "expected natural number after `@`",
+                    token.span()
+                ); // FIXME: improve this error message!
             } else {
-                return diagnostic_builder!("expected natural number after `@`"); // FIXME: improve this error message!
+                return diagnostic_builder!("expected natural number after `@`");
+                // FIXME: improve this error message!
             }
         }
 
@@ -261,7 +288,10 @@ impl<'a> Parser<'a> {
             self.advance();
             match ret.content.parse() {
                 Ok(val) => Ok(Some(val)),
-                Err(_) => diagnostic_builder_spanned!(format!("expected natural number, found `{}`", &ret.content), ret.span),
+                Err(_) => diagnostic_builder_spanned!(
+                    format!("expected natural number, found `{}`", &ret.content),
+                    ret.span
+                ),
             }
         } else {
             Ok(None)
@@ -339,18 +369,12 @@ impl<'a> Parser<'a> {
 
     fn parse_paren_expr(&mut self) -> PResult<AstEntry> {
         if !self.eat(TokenKind::OpenParen) {
-            return diagnostic_builder_spanned!(
-                "expected `{`",
-                self.curr.span()
-            );
+            return diagnostic_builder_spanned!("expected `{`", self.curr.span());
         }
         let expr = self.parse_expr()?;
 
         if !self.eat(TokenKind::ClosedParen) {
-            return diagnostic_builder_spanned!(
-                "expected `}`",
-                self.curr.span()
-            );
+            return diagnostic_builder_spanned!("expected `}`", self.curr.span());
         }
 
         Ok(expr)
@@ -390,10 +414,7 @@ impl<'a> Parser<'a> {
                 let rhs = Box::new(self.parse_primary()?);
                 Ok(AstEntry {
                     span: rhs.span.expand_lo().unwrap(),
-                    node: AstNode::PartialBinOp(PartialBinOpNode {
-                        op,
-                        rhs,
-                    }),
+                    node: AstNode::PartialBinOp(PartialBinOpNode { op, rhs }),
                 })
             }
             _ => diagnostic_builder_spanned!(
@@ -530,15 +551,35 @@ impl ParseContext {
         register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
         register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
         register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
-        register_builtin_func!(ret, "asin", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().asin())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "acos", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().acos())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "atan", &[(Some((-1.0, true)), Some((1.0, true)))], |nums| num_from_f64(nums[0].as_f64().atan())); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| num_from_f64(nums[0].as_f64().ln())); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(
+            ret,
+            "asin",
+            &[(Some((-1.0, true)), Some((1.0, true)))],
+            |nums| num_from_f64(nums[0].as_f64().asin())
+        ); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(
+            ret,
+            "acos",
+            &[(Some((-1.0, true)), Some((1.0, true)))],
+            |nums| num_from_f64(nums[0].as_f64().acos())
+        ); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(
+            ret,
+            "atan",
+            &[(Some((-1.0, true)), Some((1.0, true)))],
+            |nums| num_from_f64(nums[0].as_f64().atan())
+        ); // FIXME: this is inaccurate, find a better solution!
+        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| {
+            num_from_f64(nums[0].as_f64().ln())
+        }); // FIXME: this is inaccurate, find a better solution!
         register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
-        // even though these are approximations, they should be good enough
-        register_builtin_func!(ret, "floor", 1, |nums| num_from_f64(nums[0].as_f64().floor()));
+                                                                         // even though these are approximations, they should be good enough
+        register_builtin_func!(ret, "floor", 1, |nums| num_from_f64(
+            nums[0].as_f64().floor()
+        ));
         register_builtin_func!(ret, "ceil", 1, |nums| num_from_f64(nums[0].as_f64().ceil()));
-        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0].sqrt());
+        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0]
+            .sqrt());
         register_builtin_func!(ret, "max", 2, |nums| nums[0].max(&nums[1]));
         register_builtin_func!(ret, "min", 2, |nums| nums[0].min(&nums[1]));
         register_builtin_func!(ret, "deg", 1, |nums| nums[0].clone()
@@ -556,7 +597,13 @@ impl ParseContext {
     }
 
     pub fn unregister_set(&mut self, set: ConstantSetKind) {
-        let idx = self.registered_sets.iter().enumerate().find(|(idx, curr)| **curr == set).unwrap().0;
+        let idx = self
+            .registered_sets
+            .iter()
+            .enumerate()
+            .find(|(idx, curr)| **curr == set)
+            .unwrap()
+            .0;
         self.registered_sets.remove(idx);
         for con in set.values().iter() {
             self.vars.remove(con.0);
@@ -601,16 +648,18 @@ impl ParseContext {
         false
     }
 
-    pub fn lookup_const(&self, name: &String, parse_ctx: &ParseContext, span: Span) -> PResult<Number> {
+    pub fn lookup_const(
+        &self,
+        name: &String,
+        parse_ctx: &ParseContext,
+        span: Span,
+    ) -> PResult<Number> {
         let name = name.to_lowercase();
         let tmp = self.vars.get(name.as_str()).unwrap().clone();
         if !tmp.0 {
             return Ok(tmp.1);
         }
-        diagnostic_builder_spanned!(
-            format!("`{}` is not a const", name),
-            span
-        )
+        diagnostic_builder_spanned!(format!("`{}` is not a const", name), span)
     }
 
     pub fn exists_var(&self, name: &String) -> bool {
@@ -667,10 +716,17 @@ impl ParseContext {
 
     pub fn exists_fn(&self, name: &String) -> bool {
         let name = name.to_lowercase();
-        self.funcs.contains_key(&*name) || self.rec_funcs.contains_key(&*name) || self.builtin_funcs.contains_key(&*name)
+        self.funcs.contains_key(&*name)
+            || self.rec_funcs.contains_key(&*name)
+            || self.builtin_funcs.contains_key(&*name)
     }
 
-    pub fn try_call_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<AstEntry>> {
+    pub fn try_call_func(
+        &self,
+        name: &String,
+        args: Box<[AstEntry]>,
+        span: Span,
+    ) -> Option<PResult<AstEntry>> {
         let name = name.to_lowercase();
         let func = self.funcs.get(&*name);
         match func {
@@ -680,16 +736,14 @@ impl ParseContext {
                 } else {
                     let result = self.call_builtin_func(&name, args, span);
                     result.map(|pr| {
-                        pr.map(|num| {
-                            AstEntry {
+                        pr.map(|num| AstEntry {
+                            span,
+                            node: AstNode::Lit(LiteralToken {
                                 span,
-                                node: AstNode::Lit(LiteralToken {
-                                    span,
-                                    content: num.to_string(),
-                                    kind: LiteralKind::Number,
-                                    trailing_space: TrailingSpace::Maybe,
-                                }),
-                            }
+                                content: num.to_string(),
+                                kind: LiteralKind::Number,
+                                trailing_space: TrailingSpace::Maybe,
+                            }),
                         })
                     })
                 }
@@ -703,13 +757,15 @@ impl ParseContext {
         self.funcs.insert(name, func);
     }
 
-    fn call_rec_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<AstEntry>> {
+    fn call_rec_func(
+        &self,
+        name: &String,
+        args: Box<[AstEntry]>,
+        span: Span,
+    ) -> Option<PResult<AstEntry>> {
         let func_name = name.to_lowercase();
         match self.rec_funcs.get(&*func_name) {
-            None =>
-                {
-                    None
-                }
+            None => None,
             Some(func) => Some(func.build_tokens(args, self, span)),
         }
     }
@@ -724,13 +780,15 @@ impl ParseContext {
         self.builtin_funcs.contains_key(&*name)
     }
 
-    fn call_builtin_func(&self, name: &String, args: Box<[AstEntry]>, span: Span) -> Option<PResult<Number>> {
+    fn call_builtin_func(
+        &self,
+        name: &String,
+        args: Box<[AstEntry]>,
+        span: Span,
+    ) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
         match self.builtin_funcs.get(&*func_name) {
-            None =>
-            {
-                None
-            }
+            None => None,
             Some(func) => Some(func.build_tokens(args, self, span)),
         }
     }
@@ -748,7 +806,6 @@ pub enum ConstantSetKind {
 }
 
 impl ConstantSetKind {
-
     pub fn name(&self) -> &str {
         match self {
             ConstantSetKind::Math => "math",
@@ -758,24 +815,20 @@ impl ConstantSetKind {
 
     pub fn values(&self) -> &Vec<(&'static str, Number)> {
         match self {
-            ConstantSetKind::Math => SET_MATH.get_or_else(|| {
-                vec![
-                    ("pi", Number::pi(FP256)),
-                    ("e", Number::e(FP256)),
-                    ]
-            }),
+            ConstantSetKind::Math => {
+                SET_MATH.get_or_else(|| vec![("pi", Number::pi(FP256)), ("e", Number::e(FP256))])
+            }
             ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
                 vec![
                     ("c", Number::from_u64(FP256, 299792458)), // speed of light
                     ("h", num_from_f64(6.6261 / (10.0 as f64).powi(34))),
                     ("me", num_from_f64(9.10939 / (10.0 as f64).powi(31))), // mass of an electron
-                    ("ev", num_from_f64(1.6022 / (10.0 as f64).powi(19))), // charge of an electron
+                    ("ev", num_from_f64(1.6022 / (10.0 as f64).powi(19))),  // charge of an electron
                     ("u", num_from_f64(1.660539 / (10.0 as f64).powi(27))), // unit of atom mass
-                    ]
+                ]
             }),
         }
     }
-
 }
 
 static SET_MATH: ConcurrentOnceCell<Vec<(&str, Number)>> = ConcurrentOnceCell::new();
@@ -838,10 +891,7 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
             && !self.arg_names.contains(&lit_tok.content)
             && !self.parse_ctx.exists_const(&lit_tok.content)
         {
-            return diagnostic_builder_spanned!(
-                "Not an argument or const",
-                lit_tok.span
-            );
+            return diagnostic_builder_spanned!("Not an argument or const", lit_tok.span);
         }
 
         Ok(())
@@ -893,7 +943,7 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
                 span
             );
         }
-        
+
         for arg in node.params.iter() {
             self.walk(arg)?;
         }
@@ -915,10 +965,7 @@ impl LitWalker for RecFunctionInitValidator<'_> {
             && !self.parse_ctx.exists_const(&lit_tok.content)
             && (!self.parse_ctx.exists_fn(&lit_tok.content) || &lit_tok.content == self.func_name)
         {
-            return diagnostic_builder_spanned!(
-                "Not an argument, function or const",
-                lit_tok.span
-            );
+            return diagnostic_builder_spanned!("Not an argument, function or const", lit_tok.span);
         }
         Ok(())
     }
@@ -975,7 +1022,7 @@ impl Function {
             arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
         }
 
-        let mut walker = FunctionWalker {
+        let walker = FunctionWalker {
             parse_ctx,
             arg_replacements,
         };
@@ -996,10 +1043,22 @@ pub(crate) struct BuiltInFunction {
 }
 
 impl BuiltInFunction {
-    pub fn new(name: String, args: &[(Option<(f64, bool)>, Option<(f64, bool)>)], inner: Box<dyn Fn(Vec<Number>) -> Number + Send + Sync>) -> Self {
+    pub fn new(
+        name: String,
+        args: &[(Option<(f64, bool)>, Option<(f64, bool)>)],
+        inner: Box<dyn Fn(Vec<Number>) -> Number + Send + Sync>,
+    ) -> Self {
         Self {
             name,
-            args: args.iter().map(|arg| (arg.0.map(|(arg, eq)| (num_from_f64(arg), eq)), arg.1.map(|(arg, eq)| (num_from_f64(arg), eq)))).collect::<Vec<_>>(),
+            args: args
+                .iter()
+                .map(|arg| {
+                    (
+                        arg.0.map(|(arg, eq)| (num_from_f64(arg), eq)),
+                        arg.1.map(|(arg, eq)| (num_from_f64(arg), eq)),
+                    )
+                })
+                .collect::<Vec<_>>(),
             inner,
         }
     }
@@ -1026,15 +1085,43 @@ impl BuiltInFunction {
             let eval_walker = EvalWalker { ctx: parse_ctx };
             let walked = eval_walker.walk(arg)?;
             let curr_arg = &self.args[args.len()];
-            if curr_arg.0.as_ref().map(|(arg, eq)| !(arg < &walked || (*eq && arg == &walked))).unwrap_or(false) {
+            if curr_arg
+                .0
+                .as_ref()
+                .map(|(arg, eq)| !(arg < &walked || (*eq && arg == &walked)))
+                .unwrap_or(false)
+            {
                 return diagnostic_builder_spanned!(
-                    format!("{} is not >{} than the minimum value {}", &walked, if curr_arg.0.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.0.as_ref().unwrap().0),
+                    format!(
+                        "{} is not >{} than the minimum value {}",
+                        &walked,
+                        if curr_arg.0.as_ref().unwrap().1 {
+                            "="
+                        } else {
+                            ""
+                        },
+                        curr_arg.0.as_ref().unwrap().0
+                    ),
                     arg.span
                 );
             }
-            if curr_arg.1.as_ref().map(|(arg, eq)| !(arg > &walked || (*eq && arg == &walked))).unwrap_or(false) {
+            if curr_arg
+                .1
+                .as_ref()
+                .map(|(arg, eq)| !(arg > &walked || (*eq && arg == &walked)))
+                .unwrap_or(false)
+            {
                 return diagnostic_builder_spanned!(
-                    format!("{} is not <{} than the maximum value {}", &walked, if curr_arg.1.as_ref().unwrap().1 { "=" } else { "" }, curr_arg.1.as_ref().unwrap().0),
+                    format!(
+                        "{} is not <{} than the maximum value {}",
+                        &walked,
+                        if curr_arg.1.as_ref().unwrap().1 {
+                            "="
+                        } else {
+                            ""
+                        },
+                        curr_arg.1.as_ref().unwrap().0
+                    ),
                     arg.span
                 );
             }
@@ -1109,37 +1196,44 @@ impl RecursiveFunction {
         let mut def = false;
         if rec_param.parse::<usize>().is_err() {
             if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
-                return diagnostic_builder_spanned!(format!("expected a natural number as the recursion parameter, found `{}`", rec_param), arg_values[0].span);
+                return diagnostic_builder_spanned!(
+                    format!(
+                        "expected a natural number as the recursion parameter, found `{}`",
+                        rec_param
+                    ),
+                    arg_values[0].span
+                );
             }
         }
-        if rec_param.parse::<usize>().map_or(true, |val| val <= self.end_idx) { // FIXME: is <= correct here?
+        if rec_param
+            .parse::<usize>()
+            .map_or(true, |val| val <= self.end_idx)
+        {
+            // FIXME: is <= correct here?
             def = true;
         }
 
         let mut arg_replacements = HashMap::new();
-        for val in arg_values.into_iter().enumerate().skip(if def {
-            1
-        } else {
-            0
-        }) {
+        for val in arg_values
+            .into_iter()
+            .enumerate()
+            .skip(if def { 1 } else { 0 })
+        {
             let eval_walker = EvalWalker { ctx: parse_ctx };
             arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
         }
 
-        let mut walker = FunctionWalker {
+        let walker = FunctionWalker {
             parse_ctx,
             arg_replacements,
         };
 
-        let mut result = if def {
+        let result = if def {
             self.end_val.clone()
         } else {
             self.ast.clone()
         };
-        let mut result = AstEntry {
-            span,
-            node: result,
-        };
+        let mut result = AstEntry { span, node: result };
         walker.walk(&mut result)?;
         Ok(result)
     }

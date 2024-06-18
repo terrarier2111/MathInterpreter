@@ -15,7 +15,11 @@ pub struct Config {
 
 impl Config {
     #[inline]
-    pub const fn new(diagnostics: DiagnosticsConfig, ans_mode: ANSMode, circle_unit: CircleUnit) -> Self {
+    pub const fn new(
+        diagnostics: DiagnosticsConfig,
+        ans_mode: ANSMode,
+        circle_unit: CircleUnit,
+    ) -> Self {
         Self {
             diagnostics,
             ans_mode,

@@ -1,5 +1,3 @@
-use crate::diagnostic_builder;
-use crate::error::DiagnosticBuilder;
 use crate::parser::{PResult, ParseContext};
 use crate::shared::ArgPosition::{LHS, RHS};
 use crate::span::{FixedTokenSpan, Span};

@@ -1,14 +1,18 @@
-use crate::ast::{AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail, UnaryOpNode, AstEntry};
+use crate::_lib::ANSMode;
+use crate::ast::{
+    AstEntry, AstNode, AstNodeKind, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, RecFuncTail,
+    UnaryOpNode,
+};
 use crate::ast_walker::{AstWalker, AstWalkerMut};
-use crate::{diagnostic_builder, diagnostic_builder_spanned};
+use crate::diagnostic_builder_spanned;
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
-use crate::shared::{BinOpKind, LiteralKind, LiteralToken, Number, SignKind, TrailingSpace, UnaryOpKind, num_from_f64};
+use crate::shared::{
+    num_from_f64, BinOpKind, LiteralKind, LiteralToken, Number, TrailingSpace, UnaryOpKind,
+};
 use crate::span::Span;
 use std::hint::unreachable_unchecked;
-use std::mem;
 use std::ops::{Add, Neg, Sub};
-use crate::_lib::ANSMode;
 
 pub(crate) fn eval(
     parse_ctx: &mut ParseContext,
@@ -16,67 +20,88 @@ pub(crate) fn eval(
     mut entry: AstEntry,
     tail: Option<RecFuncTail>,
 ) -> Result<Option<Number>, DiagnosticBuilder> {
-        if entry.node.kind() != AstNodeKind::BinOp {
-            let walker = EvalWalker { ctx: parse_ctx };
-            let ret = if let AstNode::PartialBinOp(node) = &entry.node {
-                if node.op == BinOpKind::Eq {
-                    if let AstNode::Lit(lit) = &node.rhs.node {
-                        if lit.kind == LiteralKind::CharSeq {
-                            if let Some(last) = parse_ctx.get_last().clone() {
-                                parse_ctx.register_var(&lit.content, last.clone(), entry.span)?;
-                                return Ok(Some(last));
-                            } else {
-                                return diagnostic_builder_spanned!(format!("there is no previous result to define `{}` with", &lit.content), entry.span);
-                            }
-                        }
-                    }
-                    return diagnostic_builder_spanned!("can't set a previous result equal to some new one that's not a variable name", entry.span);
-                }
-                if ans_mode == ANSMode::Never {
-                    return diagnostic_builder_spanned!("ANS is disabled!", entry.span); // FIXME: improve this!
-                }
-                if let Some(last) = parse_ctx.get_last() {
-                    match node.op {
-                        BinOpKind::Eq | BinOpKind::Add | BinOpKind::Subtract => {
-                            // `Eq` was just checked for above and the other two
-                            // are transformed into unaries in the lexer.
-                            unreachable!()
-                        },
-                        _ => {
-                            walker.walk(&*node.rhs).map(|x| node.op.eval((Some(last.clone()), Some(x))))
-                        }
-                    }
-                } else {
-                    if ans_mode == ANSMode::WhenImplicit && (node.op == BinOpKind::Add || node.op == BinOpKind::Subtract) {
-                        let mut ret = walker.walk(&*node.rhs);
-                        if node.op == BinOpKind::Subtract {
-                            ret = ret.map(|x| x.neg());
-                        }
-                        ret
-                    } else {
-                        return diagnostic_builder_spanned!("There is no previous result to be used in the ANS calculation.", entry.span);
-                    }
-                }
-            } else if let AstNode::UnaryOp(node) = &entry.node {
-                if ans_mode == ANSMode::Always && (node.op == UnaryOpKind::Neg || node.op == UnaryOpKind::Pos) {
-                    if let Some(last) = parse_ctx.get_last() {
-                        if node.op == UnaryOpKind::Neg {
-                            walker.walk(&*node.val).map(|x| last.sub(x))
+    if entry.node.kind() != AstNodeKind::BinOp {
+        let walker = EvalWalker { ctx: parse_ctx };
+        let ret = if let AstNode::PartialBinOp(node) = &entry.node {
+            if node.op == BinOpKind::Eq {
+                if let AstNode::Lit(lit) = &node.rhs.node {
+                    if lit.kind == LiteralKind::CharSeq {
+                        if let Some(last) = parse_ctx.get_last().clone() {
+                            parse_ctx.register_var(&lit.content, last.clone(), entry.span)?;
+                            return Ok(Some(last));
                         } else {
-                            walker.walk(&*node.val).map(|x| last.add(x))
+                            return diagnostic_builder_spanned!(
+                                format!(
+                                    "there is no previous result to define `{}` with",
+                                    &lit.content
+                                ),
+                                entry.span
+                            );
                         }
+                    }
+                }
+                return diagnostic_builder_spanned!(
+                    "can't set a previous result equal to some new one that's not a variable name",
+                    entry.span
+                );
+            }
+            if ans_mode == ANSMode::Never {
+                return diagnostic_builder_spanned!("ANS is disabled!", entry.span);
+                // FIXME: improve this!
+            }
+            if let Some(last) = parse_ctx.get_last() {
+                match node.op {
+                    BinOpKind::Eq | BinOpKind::Add | BinOpKind::Subtract => {
+                        // `Eq` was just checked for above and the other two
+                        // are transformed into unaries in the lexer.
+                        unreachable!()
+                    }
+                    _ => walker
+                        .walk(&*node.rhs)
+                        .map(|x| node.op.eval((Some(last.clone()), Some(x)))),
+                }
+            } else {
+                if ans_mode == ANSMode::WhenImplicit
+                    && (node.op == BinOpKind::Add || node.op == BinOpKind::Subtract)
+                {
+                    let mut ret = walker.walk(&*node.rhs);
+                    if node.op == BinOpKind::Subtract {
+                        ret = ret.map(|x| x.neg());
+                    }
+                    ret
+                } else {
+                    return diagnostic_builder_spanned!(
+                        "There is no previous result to be used in the ANS calculation.",
+                        entry.span
+                    );
+                }
+            }
+        } else if let AstNode::UnaryOp(node) = &entry.node {
+            if ans_mode == ANSMode::Always
+                && (node.op == UnaryOpKind::Neg || node.op == UnaryOpKind::Pos)
+            {
+                if let Some(last) = parse_ctx.get_last() {
+                    if node.op == UnaryOpKind::Neg {
+                        walker.walk(&*node.val).map(|x| last.sub(x))
                     } else {
-                        return diagnostic_builder_spanned!("There is no previous result to be used in the ANS calculation.", entry.span);
+                        walker.walk(&*node.val).map(|x| last.add(x))
                     }
                 } else {
-                    walker.walk(&entry)
+                    return diagnostic_builder_spanned!(
+                        "There is no previous result to be used in the ANS calculation.",
+                        entry.span
+                    );
                 }
             } else {
                 walker.walk(&entry)
-            }.map(|val| Some(val));
-
-            return ret;
+            }
+        } else {
+            walker.walk(&entry)
         }
+        .map(|val| Some(val));
+
+        return ret;
+    }
 
     if let Some(last) = parse_ctx.get_last().as_ref() {
         let op_replacer = PartialOpReplacer(last);
@@ -131,10 +156,13 @@ pub(crate) fn eval(
                 },
             )
         } else {
-            (AstEntry {
-                span: node.lhs.span.merge_with(node.rhs.span),
-                node: AstNode::BinOp(node),
-            }, Action::Eval(None))
+            (
+                AstEntry {
+                    span: node.lhs.span.merge_with(node.rhs.span),
+                    node: AstNode::BinOp(node),
+                },
+                Action::Eval(None),
+            )
         }
     } else {
         // SAFETY: above we just checked if the current token kind is BinOp
@@ -156,7 +184,15 @@ pub(crate) fn eval(
         Action::DefineFunc(name, params) => {
             if let Some(tail) = tail {
                 let span = entry.span;
-                let func = RecursiveFunction::new(name, params, entry, tail.idx, tail.val.node, parse_ctx, span)?;
+                let func = RecursiveFunction::new(
+                    name,
+                    params,
+                    entry,
+                    tail.idx,
+                    tail.val.node,
+                    parse_ctx,
+                    span,
+                )?;
                 parse_ctx.register_rec_func(func);
             } else {
                 let func = Function::new(name, params, entry, parse_ctx)?;
@@ -195,12 +231,19 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 Ok(val)
             } else {
                 diagnostic_builder_spanned!(
-                    format!("there is no variable, function or constant named {}", node.content),
+                    format!(
+                        "there is no variable, function or constant named {}",
+                        node.content
+                    ),
                     span
                 )
             }
         } else {
-            let val = num_from_f64(node.content.parse::<f64>().expect(&format!("expected number, but found {}", &node.content)));
+            let val = num_from_f64(
+                node.content
+                    .parse::<f64>()
+                    .expect(&format!("expected number, but found {}", &node.content)),
+            );
             Ok(val)
         }
     }
@@ -244,23 +287,24 @@ impl AstWalker<Number> for EvalWalker<'_> {
                     trailing_space: TrailingSpace::Yes,
                 })
             };
-            let ast = AstEntry {
-                span,
-                node: ast,
-            };
+            let ast = AstEntry { span, node: ast };
             self.walk(&ast)
         }
     }
 
-    fn walk_func_call_or_func_def(&self, node: &FuncCallOrFuncDefNode, span: Span) -> PResult<Number> {
-        if let Some(result) = self.ctx.try_call_func(&node.name, node.params.clone(), span) {
+    fn walk_func_call_or_func_def(
+        &self,
+        node: &FuncCallOrFuncDefNode,
+        span: Span,
+    ) -> PResult<Number> {
+        if let Some(result) = self
+            .ctx
+            .try_call_func(&node.name, node.params.clone(), span)
+        {
             let result = result?;
             self.walk(&result)
         } else {
-            diagnostic_builder_spanned!(
-                format!("there is no function named {}", node.name),
-                span
-            )
+            diagnostic_builder_spanned!(format!("there is no function named {}", node.name), span)
         }
     }
 }
@@ -285,7 +329,11 @@ impl<'a> AstWalkerMut<()> for PartialOpReplacer<'a> {
         Ok(())
     }
 
-    fn walk_func_call_or_func_def(&self, node: &mut FuncCallOrFuncDefNode, span: Span) -> PResult<()> {
+    fn walk_func_call_or_func_def(
+        &self,
+        node: &mut FuncCallOrFuncDefNode,
+        span: Span,
+    ) -> PResult<()> {
         Ok(())
     }
 
@@ -300,17 +348,21 @@ impl<'a> AstWalkerMut<()> for PartialOpReplacer<'a> {
                 if node.op == BinOpKind::Eq {
                     return diagnostic_builder_spanned!("can't set a previous result equal to some new one that's not a variable name", entry.span);
                 }
-                entry.node = AstNode::BinOp(BinOpNode { op: node.op, lhs: Box::new(AstEntry {
-                    span: entry.span,
-                    node: AstNode::Lit(LiteralToken {
+                entry.node = AstNode::BinOp(BinOpNode {
+                    op: node.op,
+                    lhs: Box::new(AstEntry {
                         span: entry.span,
-                        content: self.0.clone().to_string(),
-                        kind: LiteralKind::Number,
-                        trailing_space: TrailingSpace::No,
+                        node: AstNode::Lit(LiteralToken {
+                            span: entry.span,
+                            content: self.0.clone().to_string(),
+                            kind: LiteralKind::Number,
+                            trailing_space: TrailingSpace::No,
+                        }),
                     }),
-                }), rhs: node.rhs.clone() });
+                    rhs: node.rhs.clone(),
+                });
                 Ok(())
-            },
+            }
         }
     }
 }

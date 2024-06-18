@@ -1,7 +1,6 @@
 use std::alloc::{alloc, dealloc, Layout};
-use std::{mem, ptr};
-use std::mem::{align_of, size_of};
 use std::ptr::NonNull;
+use std::{mem, ptr};
 
 pub struct SizedBox<T> {
     // FIXME: NOTE: this thing could basically be replaced by Box::leak
@@ -48,7 +47,6 @@ impl<T> SizedBox<T> {
         mem::forget(self);
         ret
     }
-
 }
 
 impl<T> Drop for SizedBox<T> {

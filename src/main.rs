@@ -4,6 +4,7 @@ mod __lib;
 mod _lib;
 mod ast;
 mod ast_walker;
+mod conc_once_cell;
 mod equation_evaluator;
 mod equation_simplifier;
 mod equation_solver;
@@ -11,17 +12,26 @@ mod error;
 mod lexer;
 mod parser;
 mod shared;
+mod sized_box;
 mod span;
 mod token_stream;
 mod utils;
-mod conc_once_cell;
-mod sized_box;
 
-use std::{sync::{Arc, Mutex}, ops::Deref, fmt::Display, error::Error};
+use std::{
+    error::Error,
+    fmt::Display,
+    sync::{Arc, Mutex},
+};
 
 use __lib::EvalContext;
 use _lib::CircleUnit;
-use clitty::{core::{CmdParamEnumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder}, ui::{CLIBuilder, CmdLineInterface, FallbackHandler, Window}};
+use clitty::{
+    core::{
+        CmdParamEnumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam,
+        CommandParamTy, EnumVal, UsageBuilder,
+    },
+    ui::{CLIBuilder, CmdLineInterface, FallbackHandler, Window},
+};
 use parser::ConstantSetKind;
 
 use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
@@ -29,15 +39,40 @@ use crate::_lib::{ANSMode, Config, DiagnosticsConfig, Mode};
 // TODO: support 2 types of numbers (via an enum): whole numbers and floating point numbers in order to avoid inaccurracies when doing calculations
 
 fn main() {
-    let cli = CLIBuilder::new().prompt("Please insert what is to be evaluated: ".to_string())
-    .command(CommandBuilder::new("$mode", CmdMode).params(UsageBuilder::new().required(CommandParam {
-        name: "mode",
-        ty: CommandParamTy::String(CmdParamStrConstraints::Variants { variants: &["simplify", "eval", "solve"], ignore_case: true }),
-    }))).command(CommandBuilder::new("$set", CmdSet).params(UsageBuilder::new().required(CommandParam {
-        name: "action",
-        ty: CommandParamTy::String(CmdParamStrConstraints::Variants { variants: &["register", "unregister", "list"], ignore_case: true }),
-    }).required(CommandParam { name: "set", ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(&[("math", EnumVal::None), ("physics", EnumVal::None)])) })))
-    .fallback(Box::new(CalcFallback)).build();
+    let cli = CLIBuilder::new()
+        .prompt("Please insert what is to be evaluated: ".to_string())
+        .command(
+            CommandBuilder::new("$mode", CmdMode).params(UsageBuilder::new().required(
+                CommandParam {
+                    name: "mode",
+                    ty: CommandParamTy::String(CmdParamStrConstraints::Variants {
+                        variants: &["simplify", "eval", "solve"],
+                        ignore_case: true,
+                    }),
+                },
+            )),
+        )
+        .command(
+            CommandBuilder::new("$set", CmdSet).params(
+                UsageBuilder::new()
+                    .required(CommandParam {
+                        name: "action",
+                        ty: CommandParamTy::String(CmdParamStrConstraints::Variants {
+                            variants: &["register", "unregister", "list"],
+                            ignore_case: true,
+                        }),
+                    })
+                    .required(CommandParam {
+                        name: "set",
+                        ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![
+                            ("math", EnumVal::None),
+                            ("physics", EnumVal::None),
+                        ])),
+                    }),
+            ),
+        )
+        .fallback(Box::new(CalcFallback))
+        .build();
     let cli = CmdLineInterface::new(cli);
     let context = Arc::new(_lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
@@ -73,7 +108,8 @@ impl CommandImpl for CmdMode {
             _ => Err(ModeDoesNotExistError(input[0].to_string())),
         }?;
         *ctx.mode.lock().unwrap() = mode;
-        ctx.cli.println(format!("Switched to {:?} mode", mode).as_str());
+        ctx.cli
+            .println(format!("Switched to {:?} mode", mode).as_str());
         Ok(())
     }
 }
@@ -101,28 +137,37 @@ impl CommandImpl for CmdSet {
         let set = match input[1].to_lowercase().as_str() {
             "math" => Ok(ConstantSetKind::Math),
             "physics" => Ok(ConstantSetKind::Physics),
-            _ => Err(anyhow::Error::from(SetDoesNotExistError(input[1].to_string()))),
+            _ => Err(anyhow::Error::from(SetDoesNotExistError(
+                input[1].to_string(),
+            ))),
         }?;
         let mut set_ctx = ctx.ctx.parse_ctx.write().unwrap();
         match input[0].to_lowercase().as_str() {
             "register" => {
                 if set_ctx.registered_sets.contains(&set) {
-                    return Err(anyhow::Error::from(SetAlreadyRegisteredError(input[1].to_string())));
+                    return Err(anyhow::Error::from(SetAlreadyRegisteredError(
+                        input[1].to_string(),
+                    )));
                 }
                 set_ctx.register_set(set);
-                ctx.cli.println(format!("Registered the set `{}`", input[1]).as_str());
+                ctx.cli
+                    .println(format!("Registered the set `{}`", input[1]).as_str());
                 Ok(())
-            },
+            }
             "unregister" => {
                 if !set_ctx.registered_sets.contains(&set) {
-                    return Err(anyhow::Error::from(SetNotRegisteredError(input[1].to_string())));
+                    return Err(anyhow::Error::from(SetNotRegisteredError(
+                        input[1].to_string(),
+                    )));
                 }
                 set_ctx.unregister_set(set);
-                ctx.cli.println(format!("Unregistered the set `{}`", input[1]).as_str());
+                ctx.cli
+                    .println(format!("Unregistered the set `{}`", input[1]).as_str());
                 Ok(())
-            },
+            }
             "list" => {
-                ctx.cli.println(format!("Sets({}):", set_ctx.registered_sets.len()).as_str());
+                ctx.cli
+                    .println(format!("Sets({}):", set_ctx.registered_sets.len()).as_str());
                 for set in set_ctx.registered_sets.iter() {
                     let mut values = String::new();
                     for value in set.values().iter() {
@@ -135,11 +180,14 @@ impl CommandImpl for CmdSet {
                         values.pop();
                         values.pop();
                     }
-                    ctx.cli.println(format!("{}: {}", set.name(), values).as_str());
+                    ctx.cli
+                        .println(format!("{}: {}", set.name(), values).as_str());
                 }
                 Ok(())
             }
-            _ => Err(anyhow::Error::from(ModeDoesNotExistError(input[0].to_string())))
+            _ => Err(anyhow::Error::from(ModeDoesNotExistError(
+                input[0].to_string(),
+            ))),
         }
     }
 }
@@ -186,7 +234,12 @@ impl Display for SetNotRegisteredError {
 struct CalcFallback;
 
 impl FallbackHandler<Calculator> for CalcFallback {
-    fn handle(&self, input: String, window: &Window<Calculator>, ctx: &Calculator) -> anyhow::Result<bool> {
+    fn handle(
+        &self,
+        input: String,
+        window: &Window<Calculator>,
+        ctx: &Calculator,
+    ) -> anyhow::Result<bool> {
         let result = _lib::eval(input, &ctx.ctx);
         match result.0 {
             Ok(val) => {
@@ -200,7 +253,7 @@ impl FallbackHandler<Calculator> for CalcFallback {
                 } else {
                     ctx.cli.println("Ok!");
                 }
-            },
+            }
             Err(err) => {
                 ctx.cli.println_input_aligned(format!("{}", err).as_str());
             }
