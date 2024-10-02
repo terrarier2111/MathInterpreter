@@ -70,35 +70,32 @@ impl PrioritizedSimplificationPass for ConstOpSimplificationPass {
     fn simplify3(&self, token_stream: &mut TokenStream) -> Result<(), DiagnosticBuilder> {
         while let Some(token) = token_stream.next() {
             if let Token::BinOp(_, op_kind) = token.clone() {
-                match op_kind {
-                    BinOpKind::Pow => {
-                        // TODO: MAYBE: Support (named) constant simplification for things like PI or E
-                        let args = op_kind.resolve_num_args(token_stream);
+                if op_kind == BinOpKind::Pow {
+                    // TODO: MAYBE: Support (named) constant simplification for things like PI or E
+                    let args = op_kind.resolve_num_args(token_stream);
+                    if op_kind.is_valid(&args) {
+                        let args = (
+                            args.0.and_then(|token| shared::token_to_num(&token)),
+                            args.1.and_then(|token| shared::token_to_num(&token)),
+                        );
                         if op_kind.is_valid(&args) {
-                            let args = (
-                                args.0.and_then(|token| shared::token_to_num(&token)),
-                                args.1.and_then(|token| shared::token_to_num(&token)),
+                            let result = op_kind.eval(args);
+                            let idx = token_stream.inner_idx();
+                            token_stream.inner_tokens_mut().remove(idx); // Remove Op
+                            token_stream.inner_tokens_mut().remove(idx); // Remove exp
+                            token_stream.inner_tokens_mut().remove(idx - 1); // Remove base
+                            token_stream.inner_tokens_mut().insert(
+                                idx - 1,
+                                Token::Literal(LiteralToken {
+                                    span: Span::NONE,
+                                    content: result.to_string(),
+                                    kind: LiteralKind::Number,
+                                    trailing_space: TrailingSpace::Maybe,
+                                }),
                             );
-                            if op_kind.is_valid(&args) {
-                                let result = op_kind.eval(args);
-                                let idx = token_stream.inner_idx();
-                                token_stream.inner_tokens_mut().remove(idx); // Remove Op
-                                token_stream.inner_tokens_mut().remove(idx); // Remove exp
-                                token_stream.inner_tokens_mut().remove(idx - 1); // Remove base
-                                token_stream.inner_tokens_mut().insert(
-                                    idx - 1,
-                                    Token::Literal(LiteralToken {
-                                        span: Span::NONE,
-                                        content: result.to_string(),
-                                        kind: LiteralKind::Number,
-                                        trailing_space: TrailingSpace::Maybe,
-                                    }),
-                                );
-                                token_stream.go_back();
-                            }
+                            token_stream.go_back();
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -210,39 +207,36 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
         while let Some(token) = token_stream.next() {
             if let Token::BinOp(_, op_kind) = token.clone() {
                 let args = op_kind.resolve_num_args(token_stream);
-                match op_kind {
-                    BinOpKind::Pow => {
-                        // handle right hand argument
-                        if let Some(token) = args.1 {
-                            let num = shared::token_to_num(&token);
-                            if let Some(num) = num {
-                                if num.as_f64() == 1.0 {
-                                    let idx = token_stream.inner_idx();
-                                    token_stream.inner_tokens_mut().remove(idx); // remove Op
-                                    token_stream.inner_tokens_mut().remove(idx); // remove 1
-                                    token_stream.go_back();
-                                    continue;
-                                }
-                            }
-                        }
-                        // handle left hand argument
-                        if let Some(token) = args.0 {
-                            let num = shared::token_to_num(&token);
-                            if let Some(num) = num {
-                                if num.as_f64() == 1.0 {
-                                    let idx = token_stream.inner_idx();
-                                    token_stream.inner_tokens_mut().remove(idx); // remove Op
-                                    remove_token_or_braced_region(
-                                        token_stream.input.clone(),
-                                        token_stream.inner_tokens_mut(),
-                                        idx,
-                                    )?; // remove exponent
-                                    token_stream.go_back();
-                                }
+                if op_kind == BinOpKind::Pow {
+                    // handle right hand argument
+                    if let Some(token) = args.1 {
+                        let num = shared::token_to_num(&token);
+                        if let Some(num) = num {
+                            if num.as_f64() == 1.0 {
+                                let idx = token_stream.inner_idx();
+                                token_stream.inner_tokens_mut().remove(idx); // remove Op
+                                token_stream.inner_tokens_mut().remove(idx); // remove 1
+                                token_stream.go_back();
+                                continue;
                             }
                         }
                     }
-                    _ => {}
+                    // handle left hand argument
+                    if let Some(token) = args.0 {
+                        let num = shared::token_to_num(&token);
+                        if let Some(num) = num {
+                            if num.as_f64() == 1.0 {
+                                let idx = token_stream.inner_idx();
+                                token_stream.inner_tokens_mut().remove(idx); // remove Op
+                                remove_token_or_braced_region(
+                                    token_stream.input.clone(),
+                                    token_stream.inner_tokens_mut(),
+                                    idx,
+                                )?; // remove exponent
+                                token_stream.go_back();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -331,7 +325,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                 match op_kind {
                     BinOpKind::Add => {
                         if let Some(token) = &args.0 {
-                            let num = shared::token_to_num(&token);
+                            let num = shared::token_to_num(token);
                             if let Some(num) = num {
                                 if num.is_zero() {
                                     let idx = token_stream.inner_idx();
@@ -343,7 +337,7 @@ impl PrioritizedSimplificationPass for NoopSimplificationPass {
                             }
                         }
                         if let Some(token) = &args.1 {
-                            let num = shared::token_to_num(&token);
+                            let num = shared::token_to_num(token);
                             if let Some(num) = num {
                                 if num.is_zero() {
                                     let idx = token_stream.inner_idx();
@@ -408,7 +402,7 @@ impl SimplificationPass for BraceSimplificationPass {
             if (brace.0.max(last.0) - brace.0.min(last.0)) == 1
                 && (brace.1.max(last.1) - brace.1.min(last.1)) == 1
             {
-                removed.push(brace.clone());
+                removed.push(*brace);
             }
             last = brace;
         }
@@ -465,7 +459,7 @@ impl SimplificationPass for OpSequenceSimplificationPass {
                     match lit_tok.kind {
                         LiteralKind::Number => {
                             let num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
-                            num_part = num_part * num;
+                            num_part *= num;
                         }
                         LiteralKind::CharSeq => {
                             if !var_ops.contains_key(&lit_tok.content) {
@@ -639,7 +633,7 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                     match lit_tok.kind {
                         LiteralKind::Number => {
                             let num = num_from_f64(lit_tok.content.parse::<f64>().unwrap());
-                            num_part = num_part + num;
+                            num_part += num;
                         }
                         LiteralKind::CharSeq => {
                             let diff = 1;
@@ -757,11 +751,9 @@ impl SimplificationPass for AddSubSequenceSimplificationPass {
                             continue;
                         }
                     }
-                } else {
-                    if !actions.is_empty() {
-                        apply_results(offset, &actions, token_stream);
-                        actions.clear();
-                    }
+                } else if !actions.is_empty() {
+                    apply_results(offset, &actions, token_stream);
+                    actions.clear();
                 }
             } else if token.kind() != TokenKind::Literal {
                 // FIXME: Is this correct?
@@ -1068,8 +1060,8 @@ impl Region {
 
 #[test]
 fn test() {
-    use crate::_lib::*;
     use crate::_lib;
+    use crate::_lib::*;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,

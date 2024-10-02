@@ -62,7 +62,7 @@ impl DiagnosticBuilder {
     fn build_multi_span_string(len: usize, spans: &Vec<Span>) -> String {
         let mut result = " ".repeat(len);
         for span in spans {
-            result.replace_range(span.start..span.end, &*"^".repeat(span.end - span.start));
+            result.replace_range(span.start..span.end, &"^".repeat(span.end - span.start));
         }
         result
     }
@@ -72,9 +72,9 @@ impl Display for DiagnosticBuilder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut combined = String::new();
         for x in self.items.iter() {
-            combined.push_str(&*x.to_string());
+            combined.push_str(&x.to_string());
         }
-        f.write_str(&*combined)
+        f.write_str(&combined)
     }
 }
 

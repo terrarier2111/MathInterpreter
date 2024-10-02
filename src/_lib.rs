@@ -2,7 +2,6 @@
 
 use crate::__lib;
 use crate::__lib::EvalContext;
-use crate::_lib::DiagnosticsPrintingOrder::After;
 use crate::parser::ParseResult;
 use crate::shared::Number;
 
@@ -35,16 +34,13 @@ pub struct DiagnosticsConfig {
 }
 
 #[derive(Copy, Clone)]
+#[derive(Default)]
 pub enum DiagnosticsPrintingOrder {
     Before,
+    #[default]
     After,
 }
 
-impl Default for DiagnosticsPrintingOrder {
-    fn default() -> Self {
-        After
-    }
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Mode {

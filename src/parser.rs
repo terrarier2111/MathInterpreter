@@ -97,11 +97,11 @@ impl<'a> Parser<'a> {
                         .map(|node| match &node.node {
                             AstNode::FuncCallOrFuncDef(func) => {
                                 !self.parse_ctx.vars.contains_key(&func.name)
-                                    && &func.name == &lit.content
+                                    && func.name == lit.content
                             }
                             AstNode::MaybeFunc(func) => {
                                 !self.parse_ctx.vars.contains_key(&func.name)
-                                    && &func.name == &lit.content
+                                    && func.name == lit.content
                             }
                             // AstNode::RecFuncDef(_) => {}
                             _ => false,
@@ -150,7 +150,7 @@ impl<'a> Parser<'a> {
         match mode {
             Mode::Eval => {
                 let val =
-                    equation_evaluator::eval(&mut self.parse_ctx, self.ans_mode, head_expr, tail);
+                    equation_evaluator::eval(self.parse_ctx, self.ans_mode, head_expr, tail);
                 match val {
                     Ok(val) => {
                         self.parse_ctx.set_last(val.clone());
@@ -237,7 +237,7 @@ impl<'a> Parser<'a> {
                         ),
                         node: AstNode::MaybeFunc(MaybeFuncNode {
                             name: lit.content,
-                            param: params.pop().map(|x| Box::new(x)),
+                            param: params.pop().map(Box::new),
                         }),
                     }))
                 }
@@ -764,10 +764,7 @@ impl ParseContext {
         span: Span,
     ) -> Option<PResult<AstEntry>> {
         let func_name = name.to_lowercase();
-        match self.rec_funcs.get(&*func_name) {
-            None => None,
-            Some(func) => Some(func.build_tokens(args, self, span)),
-        }
+        self.rec_funcs.get(&*func_name).map(|func| func.build_tokens(args, self, span))
     }
 
     pub fn register_rec_func(&mut self, func: RecursiveFunction) {
@@ -787,10 +784,7 @@ impl ParseContext {
         span: Span,
     ) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
-        match self.builtin_funcs.get(&*func_name) {
-            None => None,
-            Some(func) => Some(func.build_tokens(args, self, span)),
-        }
+        self.builtin_funcs.get(&*func_name).map(|func| func.build_tokens(args, self, span))
     }
 
     fn register_builtin_func(&mut self, func: BuiltInFunction) {
@@ -821,10 +815,10 @@ impl ConstantSetKind {
             ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
                 vec![
                     ("c", Number::from_u64(FP256, 299792458)), // speed of light
-                    ("h", num_from_f64(6.6261 / (10.0 as f64).powi(34))),
-                    ("me", num_from_f64(9.10939 / (10.0 as f64).powi(31))), // mass of an electron
-                    ("ev", num_from_f64(1.6022 / (10.0 as f64).powi(19))),  // charge of an electron
-                    ("u", num_from_f64(1.660539 / (10.0 as f64).powi(27))), // unit of atom mass
+                    ("h", num_from_f64(6.6261 / 10.0_f64.powi(34))),
+                    ("me", num_from_f64(9.10939 / 10.0_f64.powi(31))), // mass of an electron
+                    ("ev", num_from_f64(1.6022 / 10.0_f64.powi(19))),  // charge of an electron
+                    ("u", num_from_f64(1.660539 / 10.0_f64.powi(27))), // unit of atom mass
                 ]
             }),
         }
@@ -923,7 +917,7 @@ impl AstWalker<()> for FunctionInitValidator<'_> {
         }
 
         if let Some(param) = node.param.as_ref() {
-            self.walk(&param)?;
+            self.walk(param)?;
         }
 
         Ok(())
@@ -1017,7 +1011,7 @@ impl Function {
             );
         }
         let mut arg_replacements = HashMap::new();
-        for val in arg_values.into_iter().enumerate() {
+        for val in arg_values.iter().enumerate() {
             let eval_walker = EvalWalker { ctx: parse_ctx };
             arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
         }
@@ -1194,16 +1188,14 @@ impl RecursiveFunction {
 
         let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.to_string();
         let mut def = false;
-        if rec_param.parse::<usize>().is_err() {
-            if self.end_idx != 0 || rec_param.parse::<isize>().is_err() {
-                return diagnostic_builder_spanned!(
-                    format!(
-                        "expected a natural number as the recursion parameter, found `{}`",
-                        rec_param
-                    ),
-                    arg_values[0].span
-                );
-            }
+        if rec_param.parse::<usize>().is_err() && (self.end_idx != 0 || rec_param.parse::<isize>().is_err()) {
+            return diagnostic_builder_spanned!(
+                format!(
+                    "expected a natural number as the recursion parameter, found `{}`",
+                    rec_param
+                ),
+                arg_values[0].span
+            );
         }
         if rec_param
             .parse::<usize>()
@@ -1215,7 +1207,7 @@ impl RecursiveFunction {
 
         let mut arg_replacements = HashMap::new();
         for val in arg_values
-            .into_iter()
+            .iter()
             .enumerate()
             .skip(if def { 1 } else { 0 })
         {
@@ -1313,8 +1305,8 @@ impl<T> ParseResult<T> {
 
 #[test]
 fn test_simple_ops() {
-    use crate::_lib::*;
     use crate::_lib;
+    use crate::_lib::*;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
@@ -1354,8 +1346,8 @@ fn test_simple_ops() {
 
 #[test]
 fn test_functions() {
-    use crate::_lib::*;
     use crate::_lib;
+    use crate::_lib::*;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
@@ -1386,8 +1378,8 @@ fn test_functions() {
 
 #[test]
 fn test_ans() {
-    use crate::_lib::*;
     use crate::_lib;
+    use crate::_lib::*;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
@@ -1409,8 +1401,8 @@ fn test_ans() {
 
 #[test]
 fn test_vars() {
-    use crate::_lib::*;
     use crate::_lib;
+    use crate::_lib::*;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,

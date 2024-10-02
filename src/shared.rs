@@ -298,16 +298,14 @@ impl BinOpKind {
         let right = if self.args().has_right() {
             tokens
                 .inner_tokens()
-                .get(tokens.inner_idx() + 1)
-                .map(|token| token.clone())
+                .get(tokens.inner_idx() + 1).cloned()
         } else {
             None
         };
         let left = if self.args().has_left() {
             tokens
                 .inner_tokens()
-                .get(tokens.inner_idx() - 1)
-                .map(|token| token.clone())
+                .get(tokens.inner_idx() - 1).cloned()
         } else {
             None
         };

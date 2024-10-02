@@ -57,24 +57,22 @@ pub(crate) fn eval(
                         unreachable!()
                     }
                     _ => walker
-                        .walk(&*node.rhs)
+                        .walk(&node.rhs)
                         .map(|x| node.op.eval((Some(last.clone()), Some(x)))),
                 }
-            } else {
-                if ans_mode == ANSMode::WhenImplicit
-                    && (node.op == BinOpKind::Add || node.op == BinOpKind::Subtract)
-                {
-                    let mut ret = walker.walk(&*node.rhs);
-                    if node.op == BinOpKind::Subtract {
-                        ret = ret.map(|x| x.neg());
-                    }
-                    ret
-                } else {
-                    return diagnostic_builder_spanned!(
-                        "There is no previous result to be used in the ANS calculation.",
-                        entry.span
-                    );
+            } else if ans_mode == ANSMode::WhenImplicit
+                && (node.op == BinOpKind::Add || node.op == BinOpKind::Subtract)
+            {
+                let mut ret = walker.walk(&node.rhs);
+                if node.op == BinOpKind::Subtract {
+                    ret = ret.map(|x| x.neg());
                 }
+                ret
+            } else {
+                return diagnostic_builder_spanned!(
+                    "There is no previous result to be used in the ANS calculation.",
+                    entry.span
+                );
             }
         } else if let AstNode::UnaryOp(node) = &entry.node {
             if ans_mode == ANSMode::Always
@@ -82,9 +80,9 @@ pub(crate) fn eval(
             {
                 if let Some(last) = parse_ctx.get_last() {
                     if node.op == UnaryOpKind::Neg {
-                        walker.walk(&*node.val).map(|x| last.sub(x))
+                        walker.walk(&node.val).map(|x| last.sub(x))
                     } else {
-                        walker.walk(&*node.val).map(|x| last.add(x))
+                        walker.walk(&node.val).map(|x| last.add(x))
                     }
                 } else {
                     return diagnostic_builder_spanned!(
@@ -98,7 +96,7 @@ pub(crate) fn eval(
         } else {
             walker.walk(&entry)
         }
-        .map(|val| Some(val));
+        .map(Some);
 
         return ret;
     }
@@ -117,7 +115,7 @@ pub(crate) fn eval(
                     AstNode::FuncCallOrFuncDef(func) => {
                         Action::DefineFunc(func.name, {
                             let mut result = Vec::with_capacity(func.params.len());
-                            for param in func.params.into_iter() {
+                            for param in func.params.iter() {
                                 if let AstNode::Lit(lit) = &param.node {
                                     result.push(lit.content.clone()); // FIXME: can we get rid of this clone?
                                 } else {
@@ -204,7 +202,7 @@ pub(crate) fn eval(
         Action::Eval(_) => {
             let walker = EvalWalker { ctx: parse_ctx };
 
-            walker.walk(&entry).map(|val| Some(val))
+            walker.walk(&entry).map(Some)
         }
     }
 }
@@ -242,14 +240,14 @@ impl AstWalker<Number> for EvalWalker<'_> {
             let val = num_from_f64(
                 node.content
                     .parse::<f64>()
-                    .expect(&format!("expected number, but found {}", &node.content)),
+                    .unwrap_or_else(|_| panic!("expected number, but found {}", &node.content)),
             );
             Ok(val)
         }
     }
 
     fn walk_unary_op(&self, node: &UnaryOpNode, span: Span) -> PResult<Number> {
-        let val = self.walk(&*node.val)?;
+        let val = self.walk(&node.val)?;
         node.op.eval(val, self.ctx)
     }
 

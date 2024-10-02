@@ -88,8 +88,8 @@ pub trait LitWalker {
 
 impl<T: LitWalker> AstWalker<()> for T {
     fn walk_binop(&self, node: &BinOpNode, span: Span) -> Result<(), DiagnosticBuilder> {
-        self.walk(&*node.lhs)?;
-        self.walk(&*node.rhs)
+        self.walk(&node.lhs)?;
+        self.walk(&node.rhs)
     }
 
     fn walk_lit(&self, node: &LiteralToken, span: Span) -> Result<(), DiagnosticBuilder> {
@@ -97,13 +97,13 @@ impl<T: LitWalker> AstWalker<()> for T {
     }
 
     fn walk_unary_op(&self, node: &UnaryOpNode, span: Span) -> Result<(), DiagnosticBuilder> {
-        self.walk(&*node.val)?;
+        self.walk(&node.val)?;
         Ok(())
     }
 
     fn walk_maybe_func(&self, node: &MaybeFuncNode, span: Span) -> Result<(), DiagnosticBuilder> {
         if let Some(param) = &node.param {
-            self.walk(&*param)
+            self.walk(param)
         } else {
             Ok(())
         }
@@ -127,8 +127,8 @@ pub trait LitWalkerMut {
 
 impl<T: LitWalkerMut> AstWalkerMut<()> for T {
     fn walk_binop(&self, node: &mut BinOpNode, span: Span) -> Result<(), DiagnosticBuilder> {
-        self.walk(&mut *node.lhs)?;
-        self.walk(&mut *node.rhs)
+        self.walk(&mut node.lhs)?;
+        self.walk(&mut node.rhs)
     }
 
     fn walk_lit(&self, node: &mut LiteralToken, span: Span) -> Result<(), DiagnosticBuilder> {
@@ -136,7 +136,7 @@ impl<T: LitWalkerMut> AstWalkerMut<()> for T {
     }
 
     fn walk_unary_op(&self, node: &mut UnaryOpNode, span: Span) -> Result<(), DiagnosticBuilder> {
-        self.walk(&mut *node.val)?;
+        self.walk(&mut node.val)?;
         Ok(())
     }
 
@@ -196,7 +196,7 @@ impl<T: LitWalkerConsuming> AstWalkerConsuming<()> for T {
         node: FuncCallOrFuncDefNode,
         span: Span,
     ) -> Result<(), DiagnosticBuilder> {
-        for param in node.params.into_iter() {
+        for param in node.params.iter() {
             self.walk(param.clone())?; // FIXME: try getting rid of this clone!
         }
         Ok(())

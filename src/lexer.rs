@@ -112,7 +112,7 @@ impl Lexer {
                                 return diagnostic_builder_spanned!(
                                     format!("`{}{}` is ambiguous", content, curr),
                                     {
-                                        let new_span = span.clone();
+                                        let new_span = *span;
                                         new_span.expand_hi()
                                     }
                                 );

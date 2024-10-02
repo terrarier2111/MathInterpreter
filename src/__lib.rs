@@ -19,8 +19,8 @@ pub fn eval(input: String, eval_ctx: &EvalContext, mode: Mode) -> ParseResult<Op
     let mut parse_ctx = eval_ctx.parse_ctx.write().unwrap();
     let cfg = eval_ctx.config.load();
     let mut parser = Parser::new(tokens, &mut parse_ctx, cfg.ans_mode);
-    let parsed = parser.parse(mode);
-    parsed
+    
+    parser.parse(mode)
 }
 
 pub struct EvalContext {

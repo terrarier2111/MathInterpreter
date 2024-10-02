@@ -73,11 +73,7 @@ impl TokenStream {
         if self.cursor < dist {
             return None;
         }
-        if let Some(token) = self.tokens.get(self.cursor - dist) {
-            Some(func(token))
-        } else {
-            None
-        }
+        self.tokens.get(self.cursor - dist).map(func)
     }
 
     pub(crate) fn internal_tokens(&self) -> Box<[Token]> {
