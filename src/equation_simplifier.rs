@@ -1068,6 +1068,8 @@ impl Region {
 
 #[test]
 fn test() {
+    use crate::_lib::*;
+    use crate::_lib;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,

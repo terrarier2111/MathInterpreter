@@ -1313,6 +1313,8 @@ impl<T> ParseResult<T> {
 
 #[test]
 fn test_simple_ops() {
+    use crate::_lib::*;
+    use crate::_lib;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
@@ -1352,6 +1354,8 @@ fn test_simple_ops() {
 
 #[test]
 fn test_functions() {
+    use crate::_lib::*;
+    use crate::_lib;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
@@ -1382,6 +1386,8 @@ fn test_functions() {
 
 #[test]
 fn test_ans() {
+    use crate::_lib::*;
+    use crate::_lib;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::WhenImplicit,
@@ -1403,6 +1409,8 @@ fn test_ans() {
 
 #[test]
 fn test_vars() {
+    use crate::_lib::*;
+    use crate::_lib;
     let mut context = _lib::new_eval_ctx(Config::new(
         DiagnosticsConfig::default(),
         ANSMode::Never,
