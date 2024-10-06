@@ -8,8 +8,8 @@ use crate::equation_evaluator::{resolve_simple, EvalWalker};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    ArgPosition, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken, Number,
-    Token, TokenKind, TrailingSpace,
+    ArgPosition, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken, Number, Token,
+    TokenKind, TrailingSpace,
 };
 use crate::span::{FixedTokenSpan, Span};
 use crate::token_stream::TokenStream;
@@ -143,8 +143,7 @@ impl<'a> Parser<'a> {
 
         match mode {
             Mode::Eval => {
-                let val =
-                    equation_evaluator::eval(self.parse_ctx, self.ans_mode, head_expr, tail);
+                let val = equation_evaluator::eval(self.parse_ctx, self.ans_mode, head_expr, tail);
                 match val {
                     Ok(val) => {
                         self.parse_ctx.set_last(val.clone());
@@ -563,12 +562,16 @@ impl ParseContext {
             &[(Some((-1.0, true)), Some((1.0, true)))],
             |nums| nums[0].clone().atan()
         );
-        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| nums[0].clone().ln());
+        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| nums[0]
+            .clone()
+            .ln());
         register_builtin_func!(ret, "round", 1, |nums| nums[0].clone().round()); // FIXME: Should we even keep this one?
-                                                                         // even though these are approximations, they should be good enough
+                                                                                 // even though these are approximations, they should be good enough
         register_builtin_func!(ret, "floor", 1, |nums| nums[0].clone().floor());
         register_builtin_func!(ret, "ceil", 1, |nums| nums[0].clone().ceil());
-        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0].clone().sqrt());
+        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0]
+            .clone()
+            .sqrt());
         register_builtin_func!(ret, "max", 2, |nums| nums[0].clone().max(nums[1].clone()));
         register_builtin_func!(ret, "min", 2, |nums| nums[0].clone().min(nums[1].clone()));
         register_builtin_func!(ret, "deg", 1, |nums| nums[0].clone()
@@ -753,7 +756,9 @@ impl ParseContext {
         span: Span,
     ) -> Option<PResult<AstEntry>> {
         let func_name = name.to_lowercase();
-        self.rec_funcs.get(&*func_name).map(|func| func.build_tokens(args, self, span))
+        self.rec_funcs
+            .get(&*func_name)
+            .map(|func| func.build_tokens(args, self, span))
     }
 
     pub fn register_rec_func(&mut self, func: RecursiveFunction) {
@@ -773,7 +778,9 @@ impl ParseContext {
         span: Span,
     ) -> Option<PResult<Number>> {
         let func_name = name.to_lowercase();
-        self.builtin_funcs.get(&*func_name).map(|func| func.build_tokens(args, self, span))
+        self.builtin_funcs
+            .get(&*func_name)
+            .map(|func| func.build_tokens(args, self, span))
     }
 
     fn register_builtin_func(&mut self, func: BuiltInFunction) {
@@ -1177,7 +1184,9 @@ impl RecursiveFunction {
 
         let rec_param = resolve_simple(parse_ctx, &arg_values[0])?.to_string();
         let mut def = false;
-        if rec_param.parse::<usize>().is_err() && (self.end_idx != 0 || rec_param.parse::<isize>().is_err()) {
+        if rec_param.parse::<usize>().is_err()
+            && (self.end_idx != 0 || rec_param.parse::<isize>().is_err())
+        {
             return diagnostic_builder_spanned!(
                 format!(
                     "expected a natural number as the recursion parameter, found `{}`",
@@ -1195,11 +1204,7 @@ impl RecursiveFunction {
         }
 
         let mut arg_replacements = HashMap::new();
-        for val in arg_values
-            .iter()
-            .enumerate()
-            .skip(if def { 1 } else { 0 })
-        {
+        for val in arg_values.iter().enumerate().skip(if def { 1 } else { 0 }) {
             let eval_walker = EvalWalker { ctx: parse_ctx };
             arg_replacements.insert(self.args[val.0].clone(), eval_walker.walk(val.1)?);
         }

@@ -33,14 +33,12 @@ pub struct DiagnosticsConfig {
     printing_order: DiagnosticsPrintingOrder, // FIXME: Currently unsupported
 }
 
-#[derive(Copy, Clone)]
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
 pub enum DiagnosticsPrintingOrder {
     Before,
     #[default]
     After,
 }
-
 
 #[derive(Copy, Clone, Debug)]
 pub enum Mode {

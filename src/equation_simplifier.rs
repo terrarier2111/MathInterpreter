@@ -1,7 +1,7 @@
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind,
-    TokenStream, TrailingSpace,
+    BinOpKind, LiteralKind, LiteralToken, Number, SignKind, Token, TokenKind, TokenStream,
+    TrailingSpace,
 };
 use crate::span::{FixedTokenSpan, GenericSpan, Span};
 use crate::{diagnostic_builder, shared};

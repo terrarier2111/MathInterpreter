@@ -298,16 +298,12 @@ impl BinOpKind {
     // FIXME: this should go!
     pub fn resolve_num_args(&self, tokens: &TokenStream) -> (Option<Token>, Option<Token>) {
         let right = if self.args().has_right() {
-            tokens
-                .inner_tokens()
-                .get(tokens.inner_idx() + 1).cloned()
+            tokens.inner_tokens().get(tokens.inner_idx() + 1).cloned()
         } else {
             None
         };
         let left = if self.args().has_left() {
-            tokens
-                .inner_tokens()
-                .get(tokens.inner_idx() - 1).cloned()
+            tokens.inner_tokens().get(tokens.inner_idx() - 1).cloned()
         } else {
             None
         };
@@ -410,17 +406,13 @@ impl Add for Number {
 
     fn add(self, rhs: Self) -> Self::Output {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Int(lhs + rhs),
-                    Number::Float(rhs) => Number::Float(rhs + float_from_big_int(lhs)),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => Number::Int(lhs + rhs),
+                Number::Float(rhs) => Number::Float(rhs + float_from_big_int(lhs)),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Float(lhs + float_from_big_int(rhs)),
-                    Number::Float(rhs) => Number::Float(lhs + rhs),
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => Number::Float(lhs + float_from_big_int(rhs)),
+                Number::Float(rhs) => Number::Float(lhs + rhs),
             },
         }
     }
@@ -429,17 +421,13 @@ impl Add for Number {
 impl AddAssign for Number {
     fn add_assign(&mut self, rhs: Self) {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs += rhs,
-                    Number::Float(rhs) => *self = Number::Float(rhs + float_from_big_int(lhs.clone())),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => *lhs += rhs,
+                Number::Float(rhs) => *self = Number::Float(rhs + float_from_big_int(lhs.clone())),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs += float_from_big_int(rhs),
-                    Number::Float(rhs) => *lhs += rhs,
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => *lhs += float_from_big_int(rhs),
+                Number::Float(rhs) => *lhs += rhs,
             },
         }
     }
@@ -450,17 +438,13 @@ impl Sub for Number {
 
     fn sub(self, rhs: Self) -> Self::Output {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Int(lhs - rhs),
-                    Number::Float(rhs) => Number::Float(rhs - float_from_big_int(lhs)),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => Number::Int(lhs - rhs),
+                Number::Float(rhs) => Number::Float(rhs - float_from_big_int(lhs)),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Float(lhs - float_from_big_int(rhs)),
-                    Number::Float(rhs) => Number::Float(lhs - rhs),
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => Number::Float(lhs - float_from_big_int(rhs)),
+                Number::Float(rhs) => Number::Float(lhs - rhs),
             },
         }
     }
@@ -469,17 +453,13 @@ impl Sub for Number {
 impl SubAssign for Number {
     fn sub_assign(&mut self, rhs: Self) {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs -= rhs,
-                    Number::Float(rhs) => *self = Number::Float(rhs - float_from_big_int(lhs.clone())),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => *lhs -= rhs,
+                Number::Float(rhs) => *self = Number::Float(rhs - float_from_big_int(lhs.clone())),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs -= float_from_big_int(rhs),
-                    Number::Float(rhs) => *lhs -= rhs,
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => *lhs -= float_from_big_int(rhs),
+                Number::Float(rhs) => *lhs -= rhs,
             },
         }
     }
@@ -490,17 +470,13 @@ impl Mul for Number {
 
     fn mul(self, rhs: Self) -> Self::Output {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Int(lhs * rhs),
-                    Number::Float(rhs) => Number::Float(rhs * float_from_big_int(lhs)),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => Number::Int(lhs * rhs),
+                Number::Float(rhs) => Number::Float(rhs * float_from_big_int(lhs)),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Float(lhs * float_from_big_int(rhs)),
-                    Number::Float(rhs) => Number::Float(lhs * rhs),
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => Number::Float(lhs * float_from_big_int(rhs)),
+                Number::Float(rhs) => Number::Float(lhs * rhs),
             },
         }
     }
@@ -509,17 +485,13 @@ impl Mul for Number {
 impl MulAssign for Number {
     fn mul_assign(&mut self, rhs: Self) {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs *= rhs,
-                    Number::Float(rhs) => *self = Number::Float(rhs * float_from_big_int(lhs.clone())),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => *lhs *= rhs,
+                Number::Float(rhs) => *self = Number::Float(rhs * float_from_big_int(lhs.clone())),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs *= float_from_big_int(rhs),
-                    Number::Float(rhs) => *lhs *= rhs,
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => *lhs *= float_from_big_int(rhs),
+                Number::Float(rhs) => *lhs *= rhs,
             },
         }
     }
@@ -530,23 +502,19 @@ impl Div for Number {
 
     fn div(self, rhs: Self) -> Self::Output {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => {
-                        if &lhs % &rhs == BigInt::ZERO {
-                            Number::Int(lhs / rhs)
-                        } else {
-                            Number::Float(float_from_big_int(lhs) / float_from_big_int(rhs))
-                        }
-                    },
-                    Number::Float(rhs) => Number::Float(rhs / float_from_big_int(lhs)),
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => {
+                    if &lhs % &rhs == BigInt::ZERO {
+                        Number::Int(lhs / rhs)
+                    } else {
+                        Number::Float(float_from_big_int(lhs) / float_from_big_int(rhs))
+                    }
                 }
+                Number::Float(rhs) => Number::Float(rhs / float_from_big_int(lhs)),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => Number::Float(lhs / float_from_big_int(rhs)),
-                    Number::Float(rhs) => Number::Float(lhs / rhs),
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => Number::Float(lhs / float_from_big_int(rhs)),
+                Number::Float(rhs) => Number::Float(lhs / rhs),
             },
         }
     }
@@ -555,17 +523,13 @@ impl Div for Number {
 impl DivAssign for Number {
     fn div_assign(&mut self, rhs: Self) {
         match self {
-            Number::Int(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs /= rhs,
-                    Number::Float(rhs) => *self = Number::Float(rhs / float_from_big_int(lhs.clone())),
-                }
+            Number::Int(lhs) => match rhs {
+                Number::Int(rhs) => *lhs /= rhs,
+                Number::Float(rhs) => *self = Number::Float(rhs / float_from_big_int(lhs.clone())),
             },
-            Number::Float(lhs) => {
-                match rhs {
-                    Number::Int(rhs) => *lhs /= float_from_big_int(rhs),
-                    Number::Float(rhs) => *lhs /= rhs,
-                }
+            Number::Float(lhs) => match rhs {
+                Number::Int(rhs) => *lhs /= float_from_big_int(rhs),
+                Number::Float(rhs) => *lhs /= rhs,
             },
         }
     }
@@ -579,7 +543,6 @@ fn float_from_big_int(val: BigInt) -> Float {
 }
 
 impl Number {
-
     pub fn sin(self) -> Self {
         let val = match self {
             Number::Int(val) => float_from_big_int(val),
@@ -619,8 +582,10 @@ impl Number {
                 if val.is_inf() || val.is_nan() {
                     return Number::Float(val);
                 }
-                Number::Int(BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap())
-            },
+                Number::Int(
+                    BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap(),
+                )
+            }
         }
     }
 
@@ -631,8 +596,10 @@ impl Number {
                 if val.is_inf() || val.is_nan() {
                     return Number::Float(val);
                 }
-                Number::Int(BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap())
-            },
+                Number::Int(
+                    BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap(),
+                )
+            }
         }
     }
 
@@ -649,7 +616,7 @@ impl Number {
                     return Number::Int(BigInt::from_str(main).unwrap());
                 }
                 Number::Int(BigInt::from_str(main).unwrap() + BigInt::one())
-            },
+            }
         }
     }
 
@@ -706,7 +673,10 @@ impl Number {
         let (lhs, rhs) = match (self, other) {
             (Number::Int(lhs), Number::Int(rhs)) => {
                 if rhs > BigInt::from_u32(u32::MAX).unwrap() {
-                    unimplemented!("Exponents larger than {} are currently unsupported", u32::MAX);
+                    unimplemented!(
+                        "Exponents larger than {} are currently unsupported",
+                        u32::MAX
+                    );
                 }
                 if rhs.sign() == Sign::Minus {
                     return Number::Float(float_from_big_int(lhs).pow(&float_from_big_int(rhs)));
@@ -716,7 +686,7 @@ impl Number {
                     val.copy_from_slice(&rhs.to_bytes_le().1);
                     val
                 })));
-            },
+            }
             (Number::Int(lhs), Number::Float(rhs)) => (float_from_big_int(lhs), rhs),
             (Number::Float(lhs), Number::Int(rhs)) => (lhs, float_from_big_int(rhs)),
             (Number::Float(lhs), Number::Float(rhs)) => (lhs, rhs),
@@ -732,7 +702,7 @@ impl Number {
                     return Number::Int(root);
                 }
                 Number::Float(float_from_big_int(val).sqrt())
-            },
+            }
             Number::Float(val) => Number::Float(val.sqrt()),
         }
     }
@@ -800,7 +770,6 @@ impl Number {
     pub fn from_f64(val: f64) -> Self {
         Self::Float(Float::from_f64(val))
     }
-
 }
 
 #[derive(Copy, Clone, PartialEq)]
