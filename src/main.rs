@@ -173,7 +173,7 @@ impl CommandImpl for CmdSet {
                     for value in set.values().iter() {
                         values.push_str(value.0);
                         values.push_str(": ");
-                        values.push_str(value.1.as_f64().to_string().as_str()); // TODO: decide how many places after 0 we want!
+                        values.push_str((&value.1).to_string().as_str()); // TODO: decide how many places after 0 we want!
                         values.push_str(", ");
                     }
                     if !values.is_empty() {

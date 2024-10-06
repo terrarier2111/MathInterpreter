@@ -18,4 +18,6 @@ crossterm = "0.28"
 anyhow = "1"
 clitty = { git = "https://github.com/terrarier2111/CLItty" }
 swap-arc = "0.1.1"
+num-bigint = "0"
+num-traits = "0"
 # rustc_apfloat = "0.2.0+llvm-462a31f5a5ab"

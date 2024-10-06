@@ -1,5 +1,3 @@
-use arpfloat::FP256;
-
 use crate::ast::{
     AstEntry, AstNode, BinOpNode, FuncCallOrFuncDefNode, MaybeFuncNode, PartialBinOpNode,
     RecFuncTail, UnaryOpNode,
@@ -10,7 +8,7 @@ use crate::equation_evaluator::{resolve_simple, EvalWalker};
 use crate::equation_simplifier::simplify;
 use crate::error::DiagnosticBuilder;
 use crate::shared::{
-    num_from_f64, ArgPosition, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken, Number,
+    ArgPosition, BinOpKind, ImplicitlyMultiply, LiteralKind, LiteralToken, Number,
     Token, TokenKind, TrailingSpace,
 };
 use crate::span::{FixedTokenSpan, Span};
@@ -28,7 +26,6 @@ pub(crate) struct Parser<'a> {
     parse_ctx: &'a mut ParseContext,
     ans_mode: ANSMode,
     curr: Token,
-    action: Action,
 }
 
 impl<'a> Parser<'a> {
@@ -40,7 +37,6 @@ impl<'a> Parser<'a> {
             parse_ctx,
             ans_mode,
             curr,
-            action: Action::Eval(None),
         }
     }
 
@@ -547,45 +543,40 @@ impl ParseContext {
             registered_sets: vec![],
         };
         ret.register_set(ConstantSetKind::Math);
-        register_builtin_func!(ret, "abs", 1, |nums| nums[0].abs());
-        register_builtin_func!(ret, "sin", 1, |nums| nums[0].sin());
-        register_builtin_func!(ret, "cos", 1, |nums| nums[0].cos());
-        register_builtin_func!(ret, "tan", 1, |nums| nums[0].tan());
+        register_builtin_func!(ret, "abs", 1, |nums| nums[0].clone().abs());
+        register_builtin_func!(ret, "sin", 1, |nums| nums[0].clone().sin());
+        register_builtin_func!(ret, "cos", 1, |nums| nums[0].clone().cos());
+        register_builtin_func!(ret, "tan", 1, |nums| nums[0].clone().tan());
         register_builtin_func!(
             ret,
             "asin",
             &[(Some((-1.0, true)), Some((1.0, true)))],
-            |nums| num_from_f64(nums[0].as_f64().asin())
-        ); // FIXME: this is inaccurate, find a better solution!
+            |nums| nums[0].clone().asin()
+        );
         register_builtin_func!(
             ret,
             "acos",
             &[(Some((-1.0, true)), Some((1.0, true)))],
-            |nums| num_from_f64(nums[0].as_f64().acos())
-        ); // FIXME: this is inaccurate, find a better solution!
+            |nums| nums[0].clone().acos()
+        );
         register_builtin_func!(
             ret,
             "atan",
             &[(Some((-1.0, true)), Some((1.0, true)))],
-            |nums| num_from_f64(nums[0].as_f64().atan())
-        ); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| {
-            num_from_f64(nums[0].as_f64().ln())
-        }); // FIXME: this is inaccurate, find a better solution!
-        register_builtin_func!(ret, "round", 1, |nums| nums[0].round()); // FIXME: Should we even keep this one?
+            |nums| nums[0].clone().atan()
+        );
+        register_builtin_func!(ret, "ln", &[(Some((0.0, false)), None)], |nums| nums[0].clone().ln());
+        register_builtin_func!(ret, "round", 1, |nums| nums[0].clone().round()); // FIXME: Should we even keep this one?
                                                                          // even though these are approximations, they should be good enough
-        register_builtin_func!(ret, "floor", 1, |nums| num_from_f64(
-            nums[0].as_f64().floor()
-        ));
-        register_builtin_func!(ret, "ceil", 1, |nums| num_from_f64(nums[0].as_f64().ceil()));
-        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0]
-            .sqrt());
-        register_builtin_func!(ret, "max", 2, |nums| nums[0].max(&nums[1]));
-        register_builtin_func!(ret, "min", 2, |nums| nums[0].min(&nums[1]));
+        register_builtin_func!(ret, "floor", 1, |nums| nums[0].clone().floor());
+        register_builtin_func!(ret, "ceil", 1, |nums| nums[0].clone().ceil());
+        register_builtin_func!(ret, "sqrt", &[(Some((0.0, true)), None)], |nums| nums[0].clone().sqrt());
+        register_builtin_func!(ret, "max", 2, |nums| nums[0].clone().max(nums[1].clone()));
+        register_builtin_func!(ret, "min", 2, |nums| nums[0].clone().min(nums[1].clone()));
         register_builtin_func!(ret, "deg", 1, |nums| nums[0].clone()
-            * (Number::from_u64(FP256, 180) / Number::pi(FP256)));
+            * (Number::from_u64(180) / Number::pi()));
         register_builtin_func!(ret, "rad", 1, |nums| nums[0].clone()
-            * (Number::pi(FP256) / Number::from_u64(FP256, 180)));
+            * (Number::pi() / Number::from_u64(180)));
         ret
     }
 
@@ -810,15 +801,15 @@ impl ConstantSetKind {
     pub fn values(&self) -> &Vec<(&'static str, Number)> {
         match self {
             ConstantSetKind::Math => {
-                SET_MATH.get_or_else(|| vec![("pi", Number::pi(FP256)), ("e", Number::e(FP256))])
+                SET_MATH.get_or_else(|| vec![("pi", Number::pi()), ("e", Number::e())])
             }
             ConstantSetKind::Physics => SET_PHYS.get_or_else(|| {
                 vec![
-                    ("c", Number::from_u64(FP256, 299792458)), // speed of light
-                    ("h", num_from_f64(6.6261 / 10.0_f64.powi(34))),
-                    ("me", num_from_f64(9.10939 / 10.0_f64.powi(31))), // mass of an electron
-                    ("ev", num_from_f64(1.6022 / 10.0_f64.powi(19))),  // charge of an electron
-                    ("u", num_from_f64(1.660539 / 10.0_f64.powi(27))), // unit of atom mass
+                    ("c", Number::from_u64(299792458)), // speed of light
+                    ("h", Number::from_f64(6.6261 / 10.0_f64.powi(34))),
+                    ("me", Number::from_f64(9.10939 / 10.0_f64.powi(31))), // mass of an electron
+                    ("ev", Number::from_f64(1.6022 / 10.0_f64.powi(19))),  // charge of an electron
+                    ("u", Number::from_f64(1.660539 / 10.0_f64.powi(27))), // unit of atom mass
                 ]
             }),
         }
@@ -1048,8 +1039,8 @@ impl BuiltInFunction {
                 .iter()
                 .map(|arg| {
                     (
-                        arg.0.map(|(arg, eq)| (num_from_f64(arg), eq)),
-                        arg.1.map(|(arg, eq)| (num_from_f64(arg), eq)),
+                        arg.0.map(|(arg, eq)| (Number::from_f64(arg), eq)),
+                        arg.1.map(|(arg, eq)| (Number::from_f64(arg), eq)),
                     )
                 })
                 .collect::<Vec<_>>(),

@@ -8,7 +8,7 @@ use crate::diagnostic_builder_spanned;
 use crate::error::DiagnosticBuilder;
 use crate::parser::{Action, Function, PResult, ParseContext, RecursiveFunction};
 use crate::shared::{
-    num_from_f64, BinOpKind, LiteralKind, LiteralToken, Number, TrailingSpace, UnaryOpKind,
+    BinOpKind, LiteralKind, LiteralToken, Number, TrailingSpace, UnaryOpKind,
 };
 use crate::span::Span;
 use std::hint::unreachable_unchecked;
@@ -80,9 +80,9 @@ pub(crate) fn eval(
             {
                 if let Some(last) = parse_ctx.get_last() {
                     if node.op == UnaryOpKind::Neg {
-                        walker.walk(&node.val).map(|x| last.sub(x))
+                        walker.walk(&node.val).map(|x| last.clone().sub(x))
                     } else {
-                        walker.walk(&node.val).map(|x| last.add(x))
+                        walker.walk(&node.val).map(|x| last.clone().add(x))
                     }
                 } else {
                     return diagnostic_builder_spanned!(
@@ -237,11 +237,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
                 )
             }
         } else {
-            let val = num_from_f64(
-                node.content
-                    .parse::<f64>()
-                    .unwrap_or_else(|_| panic!("expected number, but found {}", &node.content)),
-            );
+            let val = Number::from_str(&node.content).unwrap();
             Ok(val)
         }
     }

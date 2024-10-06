@@ -2,10 +2,15 @@ use crate::parser::{PResult, ParseContext};
 use crate::shared::ArgPosition::{LHS, RHS};
 use crate::span::{FixedTokenSpan, Span};
 use arpfloat::{Float, FP256};
+use num_bigint::{BigInt, BigUint, Sign};
+use num_traits::identities::One;
+use num_traits::FromPrimitive;
 use statrs::function::gamma::gamma;
 use std::fmt::{Display, Formatter};
 use std::mem::transmute;
-use std::ops::Neg;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::str::FromStr;
+use std::u32;
 
 #[derive(Clone, Debug)]
 pub enum Token {
@@ -204,11 +209,8 @@ impl UnaryOpKind {
         match self {
             UnaryOpKind::Pos => Ok(arg),
             UnaryOpKind::Neg => Ok(arg.neg()),
-            UnaryOpKind::Factorial => {
-                // FIXME: emmit warning because of lost precision
-                Ok(num_from_f64(gamma(arg.as_f64() + 1.0)))
-            }
-            UnaryOpKind::Exp(exp) => Ok(arg.powi(*exp as u64)),
+            UnaryOpKind::Factorial => Ok(arg.factorial()),
+            UnaryOpKind::Exp(exp) => Ok(arg.pow(Number::Int(BigInt::from_usize(*exp).unwrap()))),
         }
     }
 }
@@ -288,7 +290,7 @@ impl BinOpKind {
             BinOpKind::Divide => args.0.unwrap() / args.1.unwrap(),
             BinOpKind::Multiply => args.0.unwrap() * args.1.unwrap(),
             BinOpKind::Modulo => todo!(),
-            BinOpKind::Pow => args.0.unwrap().pow(&args.1.unwrap()),
+            BinOpKind::Pow => args.0.unwrap().pow(args.1.unwrap()),
             BinOpKind::Eq => unreachable!(), // this has some special impl
         }
     }
@@ -362,19 +364,456 @@ impl SignKind {
     }
 }
 
-pub type Number = Float;
+#[derive(Clone)]
+pub enum Number {
+    Int(BigInt),
+    Float(Float),
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::Int(val) => Display::fmt(val, f),
+            Number::Float(val) => Display::fmt(val, f),
+        }
+    }
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::Int(lhs), Number::Int(rhs)) => lhs == rhs,
+            (Number::Float(lhs), Number::Float(rhs)) => lhs == rhs,
+            (Number::Int(lhs), Number::Float(rhs)) => &float_from_big_int(lhs.clone()) == rhs,
+            (Number::Float(lhs), Number::Int(rhs)) => lhs == &float_from_big_int(rhs.clone()),
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self {
+            Number::Int(lhs) => match other {
+                Number::Int(rhs) => lhs.partial_cmp(rhs),
+                Number::Float(rhs) => float_from_big_int(lhs.clone()).partial_cmp(rhs),
+            },
+            Number::Float(lhs) => match other {
+                Number::Int(rhs) => lhs.partial_cmp(&float_from_big_int(rhs.clone())),
+                Number::Float(rhs) => lhs.partial_cmp(rhs),
+            },
+        }
+    }
+}
+
+impl Add for Number {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Int(lhs + rhs),
+                    Number::Float(rhs) => Number::Float(rhs + float_from_big_int(lhs)),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Float(lhs + float_from_big_int(rhs)),
+                    Number::Float(rhs) => Number::Float(lhs + rhs),
+                }
+            },
+        }
+    }
+}
+
+impl AddAssign for Number {
+    fn add_assign(&mut self, rhs: Self) {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs += rhs,
+                    Number::Float(rhs) => *self = Number::Float(rhs + float_from_big_int(lhs.clone())),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs += float_from_big_int(rhs),
+                    Number::Float(rhs) => *lhs += rhs,
+                }
+            },
+        }
+    }
+}
+
+impl Sub for Number {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Int(lhs - rhs),
+                    Number::Float(rhs) => Number::Float(rhs - float_from_big_int(lhs)),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Float(lhs - float_from_big_int(rhs)),
+                    Number::Float(rhs) => Number::Float(lhs - rhs),
+                }
+            },
+        }
+    }
+}
+
+impl SubAssign for Number {
+    fn sub_assign(&mut self, rhs: Self) {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs -= rhs,
+                    Number::Float(rhs) => *self = Number::Float(rhs - float_from_big_int(lhs.clone())),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs -= float_from_big_int(rhs),
+                    Number::Float(rhs) => *lhs -= rhs,
+                }
+            },
+        }
+    }
+}
+
+impl Mul for Number {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Int(lhs * rhs),
+                    Number::Float(rhs) => Number::Float(rhs * float_from_big_int(lhs)),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Float(lhs * float_from_big_int(rhs)),
+                    Number::Float(rhs) => Number::Float(lhs * rhs),
+                }
+            },
+        }
+    }
+}
+
+impl MulAssign for Number {
+    fn mul_assign(&mut self, rhs: Self) {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs *= rhs,
+                    Number::Float(rhs) => *self = Number::Float(rhs * float_from_big_int(lhs.clone())),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs *= float_from_big_int(rhs),
+                    Number::Float(rhs) => *lhs *= rhs,
+                }
+            },
+        }
+    }
+}
+
+impl Div for Number {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => {
+                        if &lhs % &rhs == BigInt::ZERO {
+                            Number::Int(lhs / rhs)
+                        } else {
+                            Number::Float(float_from_big_int(lhs) / float_from_big_int(rhs))
+                        }
+                    },
+                    Number::Float(rhs) => Number::Float(rhs / float_from_big_int(lhs)),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => Number::Float(lhs / float_from_big_int(rhs)),
+                    Number::Float(rhs) => Number::Float(lhs / rhs),
+                }
+            },
+        }
+    }
+}
+
+impl DivAssign for Number {
+    fn div_assign(&mut self, rhs: Self) {
+        match self {
+            Number::Int(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs /= rhs,
+                    Number::Float(rhs) => *self = Number::Float(rhs / float_from_big_int(lhs.clone())),
+                }
+            },
+            Number::Float(lhs) => {
+                match rhs {
+                    Number::Int(rhs) => *lhs /= float_from_big_int(rhs),
+                    Number::Float(rhs) => *lhs /= rhs,
+                }
+            },
+        }
+    }
+}
+
+fn float_from_big_int(val: BigInt) -> Float {
+    let (sign, parts) = val.to_u64_digits();
+    let mut result = Float::from_bigint(FP256, arpfloat::BigInt::from_parts(&parts)); // FIXME: does this work?
+    result.set_sign(sign == Sign::Minus);
+    result
+}
+
+impl Number {
+
+    pub fn sin(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Self::Float(val.sin())
+    }
+
+    pub fn cos(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Self::Float(val.cos())
+    }
+
+    pub fn tan(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Self::Float(val.tan())
+    }
+
+    pub fn ln(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Self::Float(val.log())
+    }
+
+    pub fn round(self) -> Self {
+        match self {
+            Number::Int(val) => Number::Int(val),
+            Number::Float(val) => {
+                if val.is_inf() || val.is_nan() {
+                    return Number::Float(val);
+                }
+                Number::Int(BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap())
+            },
+        }
+    }
+
+    pub fn floor(self) -> Self {
+        match self {
+            Number::Int(val) => Number::Int(val),
+            Number::Float(val) => {
+                if val.is_inf() || val.is_nan() {
+                    return Number::Float(val);
+                }
+                Number::Int(BigInt::from_str(val.round().to_string().split_once('.').unwrap().0).unwrap())
+            },
+        }
+    }
+
+    pub fn ceil(self) -> Self {
+        match self {
+            Number::Int(val) => Number::Int(val),
+            Number::Float(val) => {
+                if val.is_inf() || val.is_nan() {
+                    return Number::Float(val);
+                }
+                let raw = val.to_string();
+                let (main, decimal) = raw.split_once('.').unwrap();
+                if decimal == "0" {
+                    return Number::Int(BigInt::from_str(main).unwrap());
+                }
+                Number::Int(BigInt::from_str(main).unwrap() + BigInt::one())
+            },
+        }
+    }
+
+    pub fn factorial(self) -> Self {
+        match self {
+            Number::Int(big_int) => Self::Int({
+                let mut result = big_int.clone();
+                let mut curr = big_int - BigInt::one();
+                while !curr.is_one() {
+                    result *= &curr;
+                    curr -= 1;
+                }
+                result
+            }),
+            Number::Float(arg) => Number::from_f64(gamma(arg.as_f64() + 1.0)),
+        }
+    }
+
+    pub fn neg(self) -> Self {
+        match self {
+            Number::Int(int) => Self::Int(int.neg()),
+            Number::Float(float) => Self::Float(float.neg()),
+        }
+    }
+
+    pub fn abs(self) -> Self {
+        match self {
+            Number::Int(int) => Self::Int(if int.sign() == Sign::Minus {
+                int.neg()
+            } else {
+                int
+            }),
+            Number::Float(float) => Self::Float(float.abs()),
+        }
+    }
+
+    pub fn min(self, other: Self) -> Self {
+        if self > other {
+            other
+        } else {
+            self
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        if self < other {
+            other
+        } else {
+            self
+        }
+    }
+
+    pub fn pow(self, other: Self) -> Self {
+        let (lhs, rhs) = match (self, other) {
+            (Number::Int(lhs), Number::Int(rhs)) => {
+                if rhs > BigInt::from_u32(u32::MAX).unwrap() {
+                    unimplemented!("Exponents larger than {} are currently unsupported", u32::MAX);
+                }
+                if rhs.sign() == Sign::Minus {
+                    return Number::Float(float_from_big_int(lhs).pow(&float_from_big_int(rhs)));
+                }
+                return Number::Int(lhs.pow(u32::from_le_bytes({
+                    let mut val = [0; 4];
+                    val.copy_from_slice(&rhs.to_bytes_le().1);
+                    val
+                })));
+            },
+            (Number::Int(lhs), Number::Float(rhs)) => (float_from_big_int(lhs), rhs),
+            (Number::Float(lhs), Number::Int(rhs)) => (lhs, float_from_big_int(rhs)),
+            (Number::Float(lhs), Number::Float(rhs)) => (lhs, rhs),
+        };
+        Number::Float(lhs.pow(&rhs))
+    }
+
+    pub fn sqrt(self) -> Self {
+        match self {
+            Number::Int(val) => {
+                let root = val.sqrt();
+                if root.pow(2) == val {
+                    return Number::Int(root);
+                }
+                Number::Float(float_from_big_int(val).sqrt())
+            },
+            Number::Float(val) => Number::Float(val.sqrt()),
+        }
+    }
+
+    pub fn asin(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Number::Float(Float::from_f64(val.as_f64().asin())) // FIXME: use a better impl because we are loosing precision!
+    }
+
+    pub fn acos(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Number::Float(Float::from_f64(val.as_f64().acos())) // FIXME: use a better impl because we are loosing precision!
+    }
+
+    pub fn atan(self) -> Self {
+        let val = match self {
+            Number::Int(val) => float_from_big_int(val),
+            Number::Float(val) => val,
+        };
+        Number::Float(Float::from_f64(val.as_f64().atan())) // FIXME: use a better impl because we are loosing precision!
+    }
+
+    pub fn is_negative(&self) -> bool {
+        match self {
+            Number::Float(val) => val.is_negative(),
+            Number::Int(val) => val.sign() == Sign::Minus,
+        }
+    }
+
+    pub fn pi() -> Self {
+        Number::Float(Float::pi(FP256))
+    }
+
+    pub fn e() -> Self {
+        Number::Float(Float::e(FP256))
+    }
+
+    pub fn to_string(self) -> String {
+        match self {
+            Number::Int(val) => val.to_string(),
+            Number::Float(val) => val.to_string(),
+        }
+    }
+
+    pub fn from_str(val: &str) -> anyhow::Result<Self> {
+        if let Some((_, rhs)) = val.split_once('.') {
+            if rhs.chars().any(|c| c != '0') {
+                return Ok(Number::Float(Float::from_f64(val.parse::<f64>()?)));
+            }
+            return Ok(Number::Int(BigInt::from_str(val)?));
+        }
+        Ok(Number::Int(BigInt::from_str(val)?))
+    }
+
+    pub fn from_u64(val: u64) -> Self {
+        Self::Int(BigInt::from_u64(val).unwrap())
+    }
+
+    pub fn from_f64(val: f64) -> Self {
+        Self::Float(Float::from_f64(val))
+    }
+
+}
 
 pub fn zero() -> Number {
-    Number::zero(FP256, false)
+    Number::Int(BigInt::ZERO)
 }
 
 pub fn one() -> Number {
-    Number::one(FP256, false)
+    Number::Int(BigInt::from_biguint(num_bigint::Sign::Plus, BigUint::one()))
 }
 
-pub fn num_from_f64(num: f64) -> Number {
-    Number::from_f64(num).cast(FP256)
-}
+/*pub fn num_from_f64(num: f64) -> Number {
+    Number::Float(Float::from_f64(num).cast(FP256))
+}*/
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Associativity {
@@ -487,7 +926,7 @@ impl TokenStream {
 pub fn token_to_num(token: &Token) -> Option<Number> {
     if let Token::Literal(lit_tok) = token {
         if lit_tok.kind == LiteralKind::Number {
-            return Some(num_from_f64(lit_tok.content.parse::<f64>().unwrap()));
+            return Some(Number::from_str(&lit_tok.content).unwrap());
         }
     }
     None
