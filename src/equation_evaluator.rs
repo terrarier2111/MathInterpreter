@@ -244,7 +244,7 @@ impl AstWalker<Number> for EvalWalker<'_> {
 
     fn walk_unary_op(&self, node: &UnaryOpNode, span: Span) -> PResult<Number> {
         let val = self.walk(&node.val)?;
-        node.op.eval(val, self.ctx)
+        node.op.eval(val)
     }
 
     fn walk_maybe_func(&self, node: &MaybeFuncNode, span: Span) -> PResult<Number> {

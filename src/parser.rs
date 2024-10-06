@@ -19,8 +19,6 @@ use crate::{
 };
 use std::collections::HashMap;
 
-const NONE: usize = usize::MAX;
-
 pub(crate) struct Parser<'a> {
     token_stream: TokenStream,
     parse_ctx: &'a mut ParseContext,
@@ -592,7 +590,7 @@ impl ParseContext {
             .registered_sets
             .iter()
             .enumerate()
-            .find(|(idx, curr)| **curr == set)
+            .find(|(_, curr)| **curr == set)
             .unwrap()
             .0;
         self.registered_sets.remove(idx);

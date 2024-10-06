@@ -1,8 +1,8 @@
-use crate::parser::{PResult, ParseContext};
+use crate::parser::PResult;
 use crate::shared::ArgPosition::{LHS, RHS};
 use crate::span::{FixedTokenSpan, Span};
 use arpfloat::{Float, FP256};
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::{BigInt, Sign};
 use num_traits::identities::One;
 use num_traits::FromPrimitive;
 use statrs::function::gamma::gamma;
@@ -205,7 +205,7 @@ impl UnaryOpKind {
         }
     }
 
-    pub(crate) fn eval(&self, arg: Number, parse_ctx: &ParseContext) -> PResult<Number> {
+    pub(crate) fn eval(&self, arg: Number) -> PResult<Number> {
         match self {
             UnaryOpKind::Pos => Ok(arg),
             UnaryOpKind::Neg => Ok(arg.neg()),
@@ -784,11 +784,11 @@ impl Number {
     }
 
     pub fn from_str(val: &str) -> anyhow::Result<Self> {
-        if let Some((_, rhs)) = val.split_once('.') {
+        if let Some((lhs, rhs)) = val.split_once('.') {
             if rhs.chars().any(|c| c != '0') {
                 return Ok(Number::Float(Float::from_f64(val.parse::<f64>()?)));
             }
-            return Ok(Number::Int(BigInt::from_str(val)?));
+            return Ok(Number::Int(BigInt::from_str(lhs)?));
         }
         Ok(Number::Int(BigInt::from_str(val)?))
     }
@@ -802,18 +802,6 @@ impl Number {
     }
 
 }
-
-pub fn zero() -> Number {
-    Number::Int(BigInt::ZERO)
-}
-
-pub fn one() -> Number {
-    Number::Int(BigInt::from_biguint(num_bigint::Sign::Plus, BigUint::one()))
-}
-
-/*pub fn num_from_f64(num: f64) -> Number {
-    Number::Float(Float::from_f64(num).cast(FP256))
-}*/
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Associativity {
